@@ -443,6 +443,16 @@ namespace Nook
             { "Helligkeits-Regler", "Brightness slider" },
             { "Stromsparmodus", "Battery saver" },
             { "Nicht stören", "Do not disturb" },
+            { "WLAN-Netzwerke", "Wi-Fi Networks" },
+            { "Bluetooth-Geräte", "Bluetooth Devices" },
+            { "Verbunden", "Connected" },
+            { "Gekoppelt", "Paired" },
+            { "Getrennt", "Disconnected" },
+            { "Verbinde mit ", "Connecting to " },
+            { "Netzwerk-Einstellungen", "Network settings" },
+            { "Bluetooth-Einstellungen", "Bluetooth settings" },
+            { "Keine Netzwerke gefunden", "No networks found" },
+            { "Keine Geräte gefunden", "No devices found" },
             { "Energie sparen", "Sleep" },
             { "Abmelden", "Sign out" },
             { "Neu starten", "Restart" },
@@ -1213,6 +1223,144 @@ namespace Nook
         [DllImport("powrprof.dll")] public static extern uint PowerGetActualOverlayScheme(out Guid pOverlaySchemeGuid);
         [DllImport("powrprof.dll")] public static extern uint PowerSetActiveOverlayScheme(ref Guid OverlaySchemeGuid);
         public static readonly Guid SaverOverlayGuid = new Guid("961cc777-2547-4f9d-8174-7d86181b8a7a");
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct BLUETOOTH_DEVICE_INFO
+        {
+            public int dwSize;
+            public ulong Address;
+            public uint ulClassofDevice;
+            public bool fConnected;
+            public bool fRemembered;
+            public bool fAuthenticated;
+            public SYSTEMTIME stLastSeen;
+            public SYSTEMTIME stLastUsed;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 248)]
+            public string szName;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SYSTEMTIME
+        {
+            public ushort wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BLUETOOTH_DEVICE_SEARCH_PARAMS
+        {
+            public int dwSize;
+            public bool fReturnAuthenticated;
+            public bool fReturnRemembered;
+            public bool fReturnUnknown;
+            public bool fReturnConnected;
+            public bool fIssueInquiry;
+            public byte cTimeoutMultiplier;
+            public IntPtr hRadio;
+        }
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern IntPtr BluetoothFindFirstDevice(ref BLUETOOTH_DEVICE_SEARCH_PARAMS searchParams, ref BLUETOOTH_DEVICE_INFO deviceInfo);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindNextDevice(IntPtr hFind, ref BLUETOOTH_DEVICE_INFO deviceInfo);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindDeviceClose(IntPtr hFind);
+
+        public class BtDevItem
+        {
+            public string Name;
+            public bool Connected;
+            public bool Authenticated;
+            public uint DeviceClass;
+        }
+
+        public static List<BtDevItem> GetBluetoothDevices()
+        {
+            var list = new List<BtDevItem>();
+            try
+            {
+                var sp = new BLUETOOTH_DEVICE_SEARCH_PARAMS
+                {
+                    dwSize = Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_SEARCH_PARAMS)),
+                    fReturnAuthenticated = true,
+                    fReturnRemembered = true,
+                    fReturnConnected = true,
+                    fReturnUnknown = false,
+                    fIssueInquiry = false,
+                    cTimeoutMultiplier = 1,
+                    hRadio = IntPtr.Zero
+                };
+                var dev = new BLUETOOTH_DEVICE_INFO { dwSize = Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_INFO)) };
+                IntPtr h = BluetoothFindFirstDevice(ref sp, ref dev);
+                if (h != IntPtr.Zero)
+                {
+                    try
+                    {
+                        do
+                        {
+                            if (!string.IsNullOrEmpty(dev.szName))
+                            {
+                                list.Add(new BtDevItem
+                                {
+                                    Name = dev.szName,
+                                    Connected = dev.fConnected,
+                                    Authenticated = dev.fAuthenticated,
+                                    DeviceClass = dev.ulClassofDevice
+                                });
+                            }
+                        } while (BluetoothFindNextDevice(h, ref dev));
+                    }
+                    finally
+                    {
+                        BluetoothFindDeviceClose(h);
+                    }
+                }
+            }
+            catch { }
+            return list.OrderByDescending(x => x.Connected).ThenBy(x => x.Name).ToList();
+        }
+
+        public class WifiNetItem
+        {
+            public string Ssid;
+            public bool Connected;
+        }
+
+        public static List<WifiNetItem> GetWifiNetworks(string currentSsid)
+        {
+            var list = new List<WifiNetItem>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrEmpty(currentSsid) && currentSsid != "Ethernet")
+            {
+                list.Add(new WifiNetItem { Ssid = currentSsid, Connected = true });
+                seen.Add(currentSsid);
+            }
+            try
+            {
+                var psi = new ProcessStartInfo("netsh", "wlan show networks")
+                {
+                    UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.GetEncoding(CultureInfo.CurrentCulture.TextInfo.OEMCodePage)
+                };
+                using (var p = Process.Start(psi))
+                {
+                    string o = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(3000);
+                    var matches = Regex.Matches(o, @"^\s*SSID\s*\d+\s*:\s*(.+?)\s*$", RegexOptions.Multiline);
+                    foreach (Match m in matches)
+                    {
+                        string ssid = m.Groups[1].Value.Trim();
+                        if (!string.IsNullOrEmpty(ssid) && seen.Add(ssid))
+                        {
+                            list.Add(new WifiNetItem { Ssid = ssid, Connected = false });
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
 
         public static bool IsBatterySaverActive()
         {
@@ -5851,16 +5999,16 @@ namespace Nook
             batterySaver.Click += ToggleBatterySaver;
             dnd = new Tile("\uEC4B", Loc.Tr("Nicht stören"), false);
             dnd.Click += ToggleDnd;
-            wifi.Click += () => Settings("ms-settings:network-wifi");
-            bt.Click += () => Settings("ms-settings:bluetooth");
+            wifi.Click += OpenWifi;
+            bt.Click += OpenBluetooth;
             audio.Click += OpenAudio;
             night.Click += () => Settings("ms-settings:nightlight");
             dark.Click += ToggleDark;
             mic.Click += ToggleMic;
             var all = new Dictionary<string, KeyValuePair<Tile, Action>>
             {
-                { "wifi", new KeyValuePair<Tile, Action>(wifi, () => Settings("ms-settings:network-wifi")) },
-                { "bluetooth", new KeyValuePair<Tile, Action>(bt, () => Settings("ms-settings:bluetooth")) },
+                { "wifi", new KeyValuePair<Tile, Action>(wifi, OpenWifi) },
+                { "bluetooth", new KeyValuePair<Tile, Action>(bt, OpenBluetooth) },
                 { "audio", new KeyValuePair<Tile, Action>(audio, OpenAudio) },
                 { "night", new KeyValuePair<Tile, Action>(night, () => Settings("ms-settings:nightlight")) },
                 { "dark", new KeyValuePair<Tile, Action>(dark, ToggleDark) },
@@ -5979,6 +6127,40 @@ namespace Nook
                 Thread.Sleep(50);
                 N.SendWin(0x4B); // Win + K
             });
+        }
+
+        void OpenWifi()
+        {
+            try
+            {
+                Rect r;
+                if (wifi.IsVisible)
+                {
+                    var p = wifi.PointToScreen(new Point(0, 0));
+                    double sc = NookApp.Scale();
+                    r = new Rect(p.X / sc, p.Y / sc, wifi.ActualWidth * Th.K, wifi.ActualHeight * Th.K);
+                }
+                else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
+                WifiFlyout.Toggle(App, r);
+            }
+            catch (Exception ex) { NookApp.Log(ex); }
+        }
+
+        void OpenBluetooth()
+        {
+            try
+            {
+                Rect r;
+                if (bt.IsVisible)
+                {
+                    var p = bt.PointToScreen(new Point(0, 0));
+                    double sc = NookApp.Scale();
+                    r = new Rect(p.X / sc, p.Y / sc, bt.ActualWidth * Th.K, bt.ActualHeight * Th.K);
+                }
+                else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
+                BluetoothFlyout.Toggle(App, r);
+            }
+            catch (Exception ex) { NookApp.Log(ex); }
         }
 
         void OpenAudio()
@@ -6216,6 +6398,8 @@ namespace Nook
             }
             catch { }
         }
+
+        public static string CurrentWifiStatus() { return WifiStatus(); }
 
         static string WifiStatus()
         {
@@ -10112,4 +10296,392 @@ namespace Nook
             }
         }
     }
+
+    // -----------------------------------------------------------------
+    //  WLAN-Flyout: WLAN-Netzwerke auflisten und verbinden
+    // -----------------------------------------------------------------
+    public class WifiFlyout : Window
+    {
+        public static WifiFlyout Current;
+
+        readonly NookApp app;
+        readonly Rect anchor;
+        readonly StackPanel sp = new StackPanel { MinWidth = 340 };
+        readonly List<Border> rows = new List<Border>();
+        readonly List<Action> rowKeys = new List<Action>();
+        int sel = -1;
+        bool closing;
+        DateTime openedAt;
+        OutsideClick outside;
+        Action<IntPtr> fgHandler;
+        IntPtr hwnd;
+
+        public WifiFlyout(NookApp a, Rect anchorScreen)
+        {
+            app = a; anchor = anchorScreen;
+            WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
+            Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
+            Title = "Nook Wi-Fi";
+            UseLayoutRounding = true; FontFamily = Th.Font;
+            TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+            Content = new Border
+            {
+                Background = Th.Bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(10), Margin = new Thickness(16),
+                LayoutTransform = new ScaleTransform(Th.K, Th.K),
+                Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, MaxHeight = 480, Focusable = false },
+                Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
+            };
+            SourceInitialized += (s, e) => { hwnd = new WindowInteropHelper(this).Handle; N.AddExStyle(hwnd, 0x80); };
+            PreviewKeyDown += OnKey;
+            outside = new OutsideClick(() => CloseFlyout(), root => root == hwnd);
+            fgHandler = hw =>
+            {
+                if (closing || (DateTime.Now - openedAt).TotalMilliseconds < 600 || hw == IntPtr.Zero) return;
+                uint pid; N.GetWindowThreadProcessId(hw, out pid);
+                if (pid != (uint)Process.GetCurrentProcess().Id) CloseFlyout();
+            };
+            Build();
+        }
+
+        public static void Toggle(NookApp a, Rect anchorScreen)
+        {
+            if (Current != null) { Current.CloseFlyout(); return; }
+            if (AudioFlyout.Current != null) AudioFlyout.Current.CloseFlyout();
+            if (BluetoothFlyout.Current != null) BluetoothFlyout.Current.CloseFlyout();
+            if (MenuWindow.Current != null) MenuWindow.Current.CloseMenu();
+            var f = new WifiFlyout(a, anchorScreen);
+            Current = f;
+            f.Open();
+        }
+
+        void Open()
+        {
+            Left = -10000; Top = -10000;
+            Show();
+            UpdateLayout();
+            var mon = app.MonitorDip();
+            double k = Th.K;
+            double x = Math.Max(mon.Left + 4, Math.Min(anchor.X - 16 * k, mon.Right - ActualWidth - 4));
+            bool below = anchor.Y + anchor.Height / 2 < mon.Top + mon.Height / 2;
+            double y = below ? anchor.Bottom - 8 * k : anchor.Top - ActualHeight + 8 * k;
+            Left = x; Top = Math.Max(mon.Top, Math.Min(y, mon.Bottom - ActualHeight));
+            N.SetWindowPos(hwnd, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            Activate();
+            N.ForceForeground(hwnd);
+            Focus();
+            openedAt = DateTime.Now;
+            outside.Start();
+            NookApp.ForegroundChanged += fgHandler;
+            if (rows.Count > 0) SetSel(0);
+        }
+
+        public void CloseFlyout()
+        {
+            if (closing) return;
+            closing = true;
+            outside.Stop();
+            NookApp.ForegroundChanged -= fgHandler;
+            if (Current == this) Current = null;
+            Close();
+            if (app.Panel != null && app.Panel.IsOpen) app.Dispatcher.BeginInvoke(new Action(app.Panel.Refocus), DispatcherPriority.Input);
+        }
+
+        void Build()
+        {
+            sp.Children.Clear(); rows.Clear(); rowKeys.Clear();
+            sp.Children.Add(Head("WLAN-Netzwerke"));
+
+            string cur = ControlsTab.CurrentWifiStatus();
+            var list = N.GetWifiNetworks(cur);
+            if (list.Count == 0)
+            {
+                sp.Children.Add(Note(Loc.Tr("Keine Netzwerke gefunden")));
+            }
+            else
+            {
+                foreach (var net0 in list)
+                {
+                    var net = net0;
+                    var g = U.G(null, new[] { U.Px(28), U.Star(1), U.Auto, U.Px(24) });
+                    U.Put(g, U.I("\uE701", 14, net.Connected ? Th.Accent : Th.Muted), 0, 0);
+                    var t = U.T(net.Ssid, 13.5, net.Connected ? Th.Text : Th.Muted, net.Connected ? FontWeights.SemiBold : FontWeights.Normal);
+                    t.MaxWidth = 220;
+                    U.Put(g, t, 0, 1);
+                    if (net.Connected)
+                    {
+                        var status = U.T(Loc.Tr("Verbunden"), 11.5, Th.Accent, FontWeights.SemiBold);
+                        status.Margin = new Thickness(0, 1, 8, 0);
+                        U.Put(g, status, 0, 2);
+                        U.Put(g, U.I("\uE73E", 12, Th.Accent), 0, 3);
+                    }
+
+                    Action act = () =>
+                    {
+                        if (net.Connected)
+                        {
+                            try { Process.Start(new ProcessStartInfo("netsh", "wlan disconnect") { UseShellExecute = false, CreateNoWindow = true }); } catch { }
+                            app.Pill.Flash(Loc.Tr("Getrennt"), 2, false);
+                        }
+                        else
+                        {
+                            try { Process.Start(new ProcessStartInfo("netsh", "wlan connect name=\"" + net.Ssid + "\"") { UseShellExecute = false, CreateNoWindow = true }); } catch { }
+                            app.Pill.Flash(Loc.Tr("Verbinde mit ") + net.Ssid, 2, false);
+                        }
+                        CloseFlyout();
+                    };
+                    AddRow(g, act);
+                }
+            }
+
+            sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(8, 8, 8, 6) });
+            var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 4, 2) };
+            links.Children.Add(Link(Loc.Tr("Netzwerk-Einstellungen"), "ms-settings:network-wifi"));
+            sp.Children.Add(links);
+        }
+
+        TextBlock Head(string t)
+        {
+            var h = U.T(Loc.Tr(t).ToUpper(Th.Cul), 10.5, Th.Muted, FontWeights.Bold);
+            h.Margin = new Thickness(10, sp.Children.Count == 0 ? 4 : 12, 10, 6);
+            return h;
+        }
+
+        TextBlock Note(string t)
+        {
+            var n = U.T(t, 12.5, Th.Muted);
+            n.Margin = new Thickness(10, 2, 10, 6);
+            return n;
+        }
+
+        Button Link(string text, string uri)
+        {
+            var b = new Button
+            {
+                Content = U.T(text, 12, Th.Accent, FontWeights.SemiBold),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
+                Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 4, 0)
+            };
+            b.Click += (s, e) => { CloseFlyout(); AppIndex.Open(uri); };
+            return b;
+        }
+
+        void AddRow(Grid content, Action click)
+        {
+            int idx = rows.Count;
+            var row = new Border { Child = content, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 7, 6, 7), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            row.MouseEnter += (s, e) => SetSel(idx);
+            row.MouseLeftButtonUp += (s, e) => { click(); e.Handled = true; };
+            rows.Add(row); rowKeys.Add(click);
+            sp.Children.Add(row);
+        }
+
+        void SetSel(int i)
+        {
+            if (rows.Count == 0) return;
+            if (sel >= 0 && sel < rows.Count) rows[sel].Background = Brushes.Transparent;
+            sel = Math.Max(0, Math.Min(rows.Count - 1, i));
+            rows[sel].Background = Th.Hover;
+            rows[sel].BringIntoView();
+        }
+
+        void OnKey(object s, KeyEventArgs e)
+        {
+            var k = e.Key == Key.System ? e.SystemKey : e.Key;
+            switch (k)
+            {
+                case Key.Escape: CloseFlyout(); e.Handled = true; return;
+                case Key.Down: SetSel(sel + 1 >= rows.Count ? 0 : sel + 1); e.Handled = true; return;
+                case Key.Up: SetSel(sel <= 0 ? rows.Count - 1 : sel - 1); e.Handled = true; return;
+                case Key.Enter: case Key.Space: if (sel >= 0 && sel < rowKeys.Count) rowKeys[sel](); e.Handled = true; return;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    //  Bluetooth-Flyout: Bluetooth-Geräte auflisten und koppeln
+    // -----------------------------------------------------------------
+    public class BluetoothFlyout : Window
+    {
+        public static BluetoothFlyout Current;
+
+        readonly NookApp app;
+        readonly Rect anchor;
+        readonly StackPanel sp = new StackPanel { MinWidth = 340 };
+        readonly List<Border> rows = new List<Border>();
+        readonly List<Action> rowKeys = new List<Action>();
+        int sel = -1;
+        bool closing;
+        DateTime openedAt;
+        OutsideClick outside;
+        Action<IntPtr> fgHandler;
+        IntPtr hwnd;
+
+        public BluetoothFlyout(NookApp a, Rect anchorScreen)
+        {
+            app = a; anchor = anchorScreen;
+            WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
+            Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
+            Title = "Nook Bluetooth";
+            UseLayoutRounding = true; FontFamily = Th.Font;
+            TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+            Content = new Border
+            {
+                Background = Th.Bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(10), Margin = new Thickness(16),
+                LayoutTransform = new ScaleTransform(Th.K, Th.K),
+                Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, MaxHeight = 480, Focusable = false },
+                Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
+            };
+            SourceInitialized += (s, e) => { hwnd = new WindowInteropHelper(this).Handle; N.AddExStyle(hwnd, 0x80); };
+            PreviewKeyDown += OnKey;
+            outside = new OutsideClick(() => CloseFlyout(), root => root == hwnd);
+            fgHandler = hw =>
+            {
+                if (closing || (DateTime.Now - openedAt).TotalMilliseconds < 600 || hw == IntPtr.Zero) return;
+                uint pid; N.GetWindowThreadProcessId(hw, out pid);
+                if (pid != (uint)Process.GetCurrentProcess().Id) CloseFlyout();
+            };
+            Build();
+        }
+
+        public static void Toggle(NookApp a, Rect anchorScreen)
+        {
+            if (Current != null) { Current.CloseFlyout(); return; }
+            if (AudioFlyout.Current != null) AudioFlyout.Current.CloseFlyout();
+            if (WifiFlyout.Current != null) WifiFlyout.Current.CloseFlyout();
+            if (MenuWindow.Current != null) MenuWindow.Current.CloseMenu();
+            var f = new BluetoothFlyout(a, anchorScreen);
+            Current = f;
+            f.Open();
+        }
+
+        void Open()
+        {
+            Left = -10000; Top = -10000;
+            Show();
+            UpdateLayout();
+            var mon = app.MonitorDip();
+            double k = Th.K;
+            double x = Math.Max(mon.Left + 4, Math.Min(anchor.X - 16 * k, mon.Right - ActualWidth - 4));
+            bool below = anchor.Y + anchor.Height / 2 < mon.Top + mon.Height / 2;
+            double y = below ? anchor.Bottom - 8 * k : anchor.Top - ActualHeight + 8 * k;
+            Left = x; Top = Math.Max(mon.Top, Math.Min(y, mon.Bottom - ActualHeight));
+            N.SetWindowPos(hwnd, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            Activate();
+            N.ForceForeground(hwnd);
+            Focus();
+            openedAt = DateTime.Now;
+            outside.Start();
+            NookApp.ForegroundChanged += fgHandler;
+            if (rows.Count > 0) SetSel(0);
+        }
+
+        public void CloseFlyout()
+        {
+            if (closing) return;
+            closing = true;
+            outside.Stop();
+            NookApp.ForegroundChanged -= fgHandler;
+            if (Current == this) Current = null;
+            Close();
+            if (app.Panel != null && app.Panel.IsOpen) app.Dispatcher.BeginInvoke(new Action(app.Panel.Refocus), DispatcherPriority.Input);
+        }
+
+        void Build()
+        {
+            sp.Children.Clear(); rows.Clear(); rowKeys.Clear();
+            sp.Children.Add(Head("Bluetooth-Geräte"));
+
+            var list = N.GetBluetoothDevices();
+            if (list.Count == 0)
+            {
+                sp.Children.Add(Note(Loc.Tr("Keine Geräte gefunden")));
+            }
+            else
+            {
+                foreach (var d0 in list)
+                {
+                    var d = d0;
+                    var g = U.G(null, new[] { U.Px(28), U.Star(1), U.Auto, U.Px(24) });
+                    U.Put(g, U.I("\uE702", 14, d.Connected ? Th.Accent : Th.Muted), 0, 0);
+                    var t = U.T(d.Name, 13.5, d.Connected ? Th.Text : Th.Muted, d.Connected ? FontWeights.SemiBold : FontWeights.Normal);
+                    t.MaxWidth = 220;
+                    U.Put(g, t, 0, 1);
+                    var status = U.T(d.Connected ? Loc.Tr("Verbunden") : Loc.Tr("Gekoppelt"), 11.5, d.Connected ? Th.Accent : Th.Muted, FontWeights.SemiBold);
+                    status.Margin = new Thickness(0, 1, 8, 0);
+                    U.Put(g, status, 0, 2);
+                    if (d.Connected) U.Put(g, U.I("\uE73E", 12, Th.Accent), 0, 3);
+
+                    Action act = () =>
+                    {
+                        CloseFlyout();
+                        AppIndex.Open("ms-settings:bluetooth");
+                    };
+                    AddRow(g, act);
+                }
+            }
+
+            sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(8, 8, 8, 6) });
+            var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 4, 2) };
+            links.Children.Add(Link(Loc.Tr("Bluetooth-Einstellungen"), "ms-settings:bluetooth"));
+            sp.Children.Add(links);
+        }
+
+        TextBlock Head(string t)
+        {
+            var h = U.T(Loc.Tr(t).ToUpper(Th.Cul), 10.5, Th.Muted, FontWeights.Bold);
+            h.Margin = new Thickness(10, sp.Children.Count == 0 ? 4 : 12, 10, 6);
+            return h;
+        }
+
+        TextBlock Note(string t)
+        {
+            var n = U.T(t, 12.5, Th.Muted);
+            n.Margin = new Thickness(10, 2, 10, 6);
+            return n;
+        }
+
+        Button Link(string text, string uri)
+        {
+            var b = new Button
+            {
+                Content = U.T(text, 12, Th.Accent, FontWeights.SemiBold),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
+                Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 4, 0)
+            };
+            b.Click += (s, e) => { CloseFlyout(); AppIndex.Open(uri); };
+            return b;
+        }
+
+        void AddRow(Grid content, Action click)
+        {
+            int idx = rows.Count;
+            var row = new Border { Child = content, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 7, 6, 7), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            row.MouseEnter += (s, e) => SetSel(idx);
+            row.MouseLeftButtonUp += (s, e) => { click(); e.Handled = true; };
+            rows.Add(row); rowKeys.Add(click);
+            sp.Children.Add(row);
+        }
+
+        void SetSel(int i)
+        {
+            if (rows.Count == 0) return;
+            if (sel >= 0 && sel < rows.Count) rows[sel].Background = Brushes.Transparent;
+            sel = Math.Max(0, Math.Min(rows.Count - 1, i));
+            rows[sel].Background = Th.Hover;
+            rows[sel].BringIntoView();
+        }
+
+        void OnKey(object s, KeyEventArgs e)
+        {
+            var k = e.Key == Key.System ? e.SystemKey : e.Key;
+            switch (k)
+            {
+                case Key.Escape: CloseFlyout(); e.Handled = true; return;
+                case Key.Down: SetSel(sel + 1 >= rows.Count ? 0 : sel + 1); e.Handled = true; return;
+                case Key.Up: SetSel(sel <= 0 ? rows.Count - 1 : sel - 1); e.Handled = true; return;
+                case Key.Enter: case Key.Space: if (sel >= 0 && sel < rowKeys.Count) rowKeys[sel](); e.Handled = true; return;
+            }
+        }
+    }
+
 }
