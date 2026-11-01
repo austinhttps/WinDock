@@ -5134,19 +5134,24 @@ namespace Nook
         public static Btn Make(string id, string title, Cfg c)
         {
             string mode = c.S("panel.tabIcons", "text");
-            var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            string st = c.S("panel.tabStyle", "pill");
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             if (mode != "text")
             {
                 var ic = U.I(Glyph(id), 14, Th.Muted);
-                if (mode == "both") ic.Margin = new Thickness(0, 1, 7, 0);
+                if (mode == "both") ic.Margin = new Thickness(0, 0, 7, 0);
                 sp.Children.Add(ic);
             }
             if (mode != "icons") sp.Children.Add(U.T(title, 13.5, Th.Muted, FontWeights.SemiBold));
-            var line = new Border { Height = 2.5, CornerRadius = new CornerRadius(1.25), Margin = new Thickness(6, 5, 6, 0), Background = Brushes.Transparent };
-            var col = new StackPanel();
+            var line = new Border { Height = 2.5, CornerRadius = new CornerRadius(1.25), Margin = new Thickness(6, 5, 6, 0), Background = Brushes.Transparent, Visibility = (st == "underline" ? Visibility.Visible : Visibility.Collapsed) };
+            var col = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             col.Children.Add(sp); col.Children.Add(line);
-            var b = new Btn(col, Brushes.Transparent, Th.Surface, 15, new Thickness(mode == "icons" ? 12 : 14, 6, mode == "icons" ? 12 : 14, 6));
-            b.Margin = new Thickness(2, 0, 2, 0);
+            var b = new Btn(col, Brushes.Transparent, Th.Surface, 15, new Thickness(mode == "icons" ? 12 : 14, 5.5, mode == "icons" ? 12 : 14, 5.5))
+            {
+                Margin = new Thickness(2, 0, 2, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
             b.Tag = new object[] { sp, line };
             if (mode == "icons") b.ToolTip = title;
             return b;
@@ -5240,8 +5245,8 @@ namespace Nook
             // Tab-Leiste: links Uhrzeit, Mitte Tabs, rechts Hilfe + Menü
             bool tabsLeft = c.S("panel.tabAlign", "center") == "left";
             var bar = barGrid = tabsLeft ? U.G(null, new[] { U.Auto, U.Star(1), U.Auto }) : U.G(null, new[] { U.Star(1), U.Auto, U.Star(1) });
-            bar.Margin = new Thickness(22, 16, 18, 14);
-            tabSp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = tabsLeft ? HorizontalAlignment.Left : HorizontalAlignment.Center };
+            bar.Margin = new Thickness(18, 16, 18, 14);
+            tabSp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = tabsLeft ? HorizontalAlignment.Left : HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             if (tabsLeft) tabSp.Margin = new Thickness(14, 0, 0, 0);
             U.Put(bar, tabSp, 0, 1);
             barClock = U.T("", 15, Th.Text, FontWeights.SemiBold);
