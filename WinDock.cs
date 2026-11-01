@@ -1482,6 +1482,36 @@ namespace WinDock
         [DllImport("bthprops.cpl", SetLastError = true)]
         public static extern bool BluetoothFindDeviceClose(IntPtr hFind);
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BLUETOOTH_FIND_RADIO_PARAMS
+        {
+            public uint dwSize;
+        }
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern IntPtr BluetoothFindFirstRadio(ref BLUETOOTH_FIND_RADIO_PARAMS pSearchParams, out IntPtr phRadio);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindRadioClose(IntPtr hFind);
+
+        public static bool IsBluetoothOn()
+        {
+            try
+            {
+                var p = new BLUETOOTH_FIND_RADIO_PARAMS { dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_FIND_RADIO_PARAMS)) };
+                IntPtr hRadio;
+                IntPtr hFind = BluetoothFindFirstRadio(ref p, out hRadio);
+                if (hFind != IntPtr.Zero)
+                {
+                    BluetoothFindRadioClose(hFind);
+                    if (hRadio != IntPtr.Zero) CloseHandle(hRadio);
+                    return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
         public class BtDevItem
         {
             public string Name;
@@ -2665,6 +2695,11 @@ namespace WinDock
             }
         }
 
+        public static bool IsBatterySaver
+        {
+            get { return N.IsBatterySaverActive(); }
+        }
+
         public static string Glyph(int pct, bool charging)
         {
             if (charging) return "\uEA93"; // Charging
@@ -2678,6 +2713,60 @@ namespace WinDock
             if (pct >= 20) return "\uEBA7";
             if (pct >= 10) return "\uEBA6";
             return "\uEBA4";
+        }
+    }
+
+    public static class WifiState
+    {
+        public static bool Connected;
+        public static string Ssid = "";
+        public static int SignalPercent = -1;
+        public static string Glyph = "\uE701";
+        static DateTime lastFetch = DateTime.MinValue;
+        static int running = 0;
+
+        public static void UpdateIfNeeded()
+        {
+            if ((DateTime.Now - lastFetch).TotalSeconds < 4) return;
+            if (System.Threading.Interlocked.CompareExchange(ref running, 1, 0) != 0) return;
+            lastFetch = DateTime.Now;
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo("netsh", "wlan show interfaces")
+                    {
+                        UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true,
+                        StandardOutputEncoding = System.Text.Encoding.GetEncoding(System.Globalization.CultureInfo.CurrentCulture.TextInfo.OEMCodePage)
+                    };
+                    using (var p = System.Diagnostics.Process.Start(psi))
+                    {
+                        string o = p.StandardOutput.ReadToEnd();
+                        p.WaitForExit(2000);
+                        var sm = System.Text.RegularExpressions.Regex.Match(o, @"^\s*State\s*:\s*(.+?)\s*$", System.Text.RegularExpressions.RegexOptions.Multiline);
+                        bool conn = sm.Success && sm.Groups[1].Value.Trim().IndexOf("connected", StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (conn)
+                        {
+                            var mSsid = System.Text.RegularExpressions.Regex.Match(o, @"^\s*SSID\s*:\s*(.+?)\s*$", System.Text.RegularExpressions.RegexOptions.Multiline);
+                            var mSig = System.Text.RegularExpressions.Regex.Match(o, @"^\s*Signal\s*:\s*(\d+)%", System.Text.RegularExpressions.RegexOptions.Multiline);
+                            Connected = true;
+                            Ssid = mSsid.Success ? mSsid.Groups[1].Value.Trim() : "Wi-Fi";
+                            int sig = mSig.Success ? int.Parse(mSig.Groups[1].Value) : 80;
+                            SignalPercent = sig;
+                            if (sig >= 75) Glyph = "\uE874";
+                            else if (sig >= 50) Glyph = "\uE873";
+                            else if (sig >= 25) Glyph = "\uE872";
+                            else Glyph = "\uE871";
+                            return;
+                        }
+                    }
+                }
+                catch { }
+                finally { System.Threading.Interlocked.Exchange(ref running, 0); }
+                Connected = false;
+                Ssid = "";
+                SignalPercent = -1;
+            });
         }
     }
 
@@ -4198,7 +4287,8 @@ namespace WinDock
         readonly WinDockApp app;
         readonly Border body, winSep;
         readonly TextBlock clock, date, weatherTx, batteryIc, batteryTx, media, timerTx, flashTx;
-        readonly StackPanel batterySp;
+        readonly StackPanel batterySp, statusSp;
+        readonly TextBlock statusWifi, statusBt, statusDnd, statusAwake;
         readonly Border dot;
         readonly StackPanel mediaSp, timerSp, winSp;
         StackPanel textItems;
@@ -4256,7 +4346,48 @@ namespace WinDock
             batteryTx = U.T("", fs, Th.Text);
             batteryTx.Margin = new Thickness(4, 0, 0, 0);
             batterySp.Children.Add(batteryIc);
-            batterySp.Children.Add(batteryTx); date.Margin = new Thickness(8, 0, 0, 0);
+            batterySp.Children.Add(batteryTx);
+
+            statusSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            statusWifi = U.I("\uE701", fs - 2, Th.Text);
+            statusWifi.Margin = new Thickness(0, 0, 4, 0);
+            statusWifi.Cursor = Cursors.Hand;
+            statusWifi.MouseDown += (s, e) => {
+                var r = app.PillRect();
+                WifiFlyout.Toggle(app, new Rect(r.X, r.Y, r.Width, r.Height));
+                e.Handled = true;
+            };
+
+            statusBt = U.I("\uE702", fs - 2, Th.Text);
+            statusBt.Margin = new Thickness(0, 0, 4, 0);
+            statusBt.Cursor = Cursors.Hand;
+            statusBt.MouseDown += (s, e) => {
+                var r = app.PillRect();
+                BluetoothFlyout.Toggle(app, new Rect(r.X, r.Y, r.Width, r.Height));
+                e.Handled = true;
+            };
+
+            statusDnd = U.I("\uE708", fs - 2, Th.Accent);
+            statusDnd.Margin = new Thickness(0, 0, 4, 0);
+            statusDnd.Cursor = Cursors.Hand;
+            statusDnd.MouseDown += (s, e) => {
+                DndControl.Toggle();
+                Refresh();
+                e.Handled = true;
+            };
+
+            statusAwake = U.I("\uE7B3", fs - 2, Th.Accent);
+            statusAwake.Cursor = Cursors.Hand;
+            statusAwake.MouseDown += (s, e) => {
+                ControlsTab.ToggleKeepAwakeStatic();
+                Refresh();
+                e.Handled = true;
+            };
+
+            statusSp.Children.Add(statusWifi);
+            statusSp.Children.Add(statusBt);
+            statusSp.Children.Add(statusDnd);
+            statusSp.Children.Add(statusAwake);
 
             timerSp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0) };
             var ti = U.I("", fs - 1, Th.Accent); ti.Margin = new Thickness(0, 1, 5, 0);
@@ -4310,9 +4441,9 @@ namespace WinDock
             sensorSp.Children.Add(camBtn);
 
             // Inhalte in der eingestellten Reihenfolge
-            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "battery", batterySp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "timer", timerSp }, { "media", mediaSp }, { "tray", trayBtn } };
+            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "status", statusSp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "battery", batterySp }, { "timer", timerSp }, { "media", mediaSp }, { "tray", trayBtn } };
             var pOrder = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "tray", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
+            foreach (var id in new[] { "mic", "status", "clock", "date", "weather", "battery", "timer", "media", "tray", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
             winFirst = pOrder.IndexOf("windows") == 0;
             foreach (var id in pOrder)
             {
@@ -4495,18 +4626,92 @@ namespace WinDock
             string df = c.S("pill.dateFormat", "short");
             date.Text = now.ToString(df == "long" ? (Loc.En ? "dddd, MMMM d" : "dddd, d. MMMM") : df == "numeric" ? (Loc.En ? "MM/dd" : "dd.MM.") : Loc.Tr("ddd d. MMM"), Th.Cul);
 
+            // Active Status-Icons (WLAN, Bluetooth, DND, Keep Awake)
+            WifiState.UpdateIfNeeded();
+            if (WifiState.Connected)
+            {
+                statusWifi.Visibility = Visibility.Visible;
+                statusWifi.Text = WifiState.Glyph;
+                statusWifi.ToolTip = "Wi-Fi: " + WifiState.Ssid + (WifiState.SignalPercent >= 0 ? " (" + WifiState.SignalPercent + "%)" : "");
+            }
+            else
+            {
+                statusWifi.Visibility = Visibility.Collapsed;
+            }
+
+            if (N.IsBluetoothOn())
+            {
+                statusBt.Visibility = Visibility.Visible;
+                statusBt.ToolTip = "Bluetooth";
+            }
+            else
+            {
+                statusBt.Visibility = Visibility.Collapsed;
+            }
+
+            if (DndControl.IsDnd())
+            {
+                statusDnd.Visibility = Visibility.Visible;
+                statusDnd.ToolTip = Loc.Tr("Do not disturb");
+            }
+            else
+            {
+                statusDnd.Visibility = Visibility.Collapsed;
+            }
+
+            if (ControlsTab.IsAwakeActive)
+            {
+                statusAwake.Visibility = Visibility.Visible;
+                statusAwake.ToolTip = Loc.Tr("Keep awake");
+            }
+            else
+            {
+                statusAwake.Visibility = Visibility.Collapsed;
+            }
+
+            bool anyStatus = statusWifi.Visibility == Visibility.Visible || statusBt.Visibility == Visibility.Visible ||
+                             statusDnd.Visibility == Visibility.Visible || statusAwake.Visibility == Visibility.Visible;
+            statusSp.Visibility = anyStatus ? Visibility.Visible : Visibility.Collapsed;
+
             bool showBattery = c.B("pill.showBattery", true);
             if (showBattery && BatteryStatus.HasBattery)
             {
                 int pct = BatteryStatus.Percent;
                 bool chg = BatteryStatus.IsCharging;
+                bool saver = BatteryStatus.IsBatterySaver;
                 batterySp.Visibility = Visibility.Visible;
-                batteryIc.Text = BatteryStatus.Glyph(pct, chg);
                 batteryTx.Text = pct + "%";
-                var fg = (!chg && pct <= 15) ? Th.B(Color.FromRgb(240, 90, 80)) : Th.Text;
+
+                Brush fg;
+                string modeText;
+                if (chg)
+                {
+                    batteryIc.Text = "\uEA93";
+                    fg = Th.B(Color.FromRgb(52, 199, 89)); // Green
+                    modeText = "Charging";
+                }
+                else if (saver)
+                {
+                    batteryIc.Text = "\uEBAA";
+                    fg = Th.B(Color.FromRgb(255, 204, 0)); // Yellow
+                    modeText = "Battery saver";
+                }
+                else if (pct <= 20)
+                {
+                    batteryIc.Text = "\uEBA4";
+                    fg = Th.B(Color.FromRgb(255, 59, 48)); // Red
+                    modeText = "Low battery";
+                }
+                else
+                {
+                    batteryIc.Text = BatteryStatus.Glyph(pct, false);
+                    fg = Th.Text;
+                    modeText = "On battery";
+                }
+
                 batteryIc.Foreground = fg;
                 batteryTx.Foreground = fg;
-                batterySp.ToolTip = pct + "%" + (chg ? " (" + Loc.Tr("Netzbetrieb") + ")" : " (" + Loc.Tr("Akkubetrieb") + ")");
+                batterySp.ToolTip = pct + "% (" + Loc.Tr(modeText) + ")";
             }
             else
             {
@@ -4549,7 +4754,12 @@ namespace WinDock
                 if (el == winSep || el == winSp) continue;
                 var fe = el as FrameworkElement;
                 if (fe == null || el.Visibility != Visibility.Visible) continue;
-                double left = prev == null ? 0 : ((el == date && prev == clock) || (el == weatherTx && (prev == clock || prev == date)) ? 8 : 12);
+                double left = 12;
+                if (prev == null) left = 0;
+                else if ((el == date && prev == clock) ||
+                         (el == weatherTx && (prev == clock || prev == date)) ||
+                         (el == batterySp && (prev == weatherTx || prev == clock || prev == date))) left = 8;
+                else if (prev == statusSp || el == statusSp) left = 6;
                 fe.Margin = new Thickness(left, 0, 0, 0);
                 prev = el;
             }
@@ -6239,7 +6449,7 @@ namespace WinDock
             cast.Click += OpenCast;
             batterySaver = new Tile("\uEBAA", Loc.Tr("Stromsparmodus"), false);
             batterySaver.Click += ToggleBatterySaver;
-            dnd = new Tile("\uEC4B", Loc.Tr("Nicht stören"), false);
+            dnd = new Tile("\uE708", Loc.Tr("Nicht stören"), false);
             dnd.Click += ToggleDnd;
             wifi.Click += OpenWifi;
             bt.Click += OpenBluetooth;
@@ -6444,11 +6654,16 @@ namespace WinDock
             catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
-        void ToggleAwake()
+        public static bool IsAwakeActive { get { return isAwake; } }
+        public static void ToggleKeepAwakeStatic(Tile tile = null)
         {
             isAwake = !isAwake;
             N.SetThreadExecutionState(isAwake ? 0x80000003 : 0x80000000);
-            awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
+            if (tile != null) tile.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
+        }
+        void ToggleAwake()
+        {
+            ToggleKeepAwakeStatic(awake);
         }
 
         void ToggleDnd()
@@ -9966,7 +10181,7 @@ namespace WinDock
             return new[]
             {
                 new[] { "wifi", Loc.Tr("WLAN"), "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
-                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }, new[] { "dnd", Loc.Tr("Nicht stören"), "" }
+                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }, new[] { "dnd", Loc.Tr("Nicht stören"), "\uE708" }
             };
         }
 
