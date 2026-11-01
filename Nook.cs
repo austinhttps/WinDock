@@ -1251,6 +1251,34 @@ namespace Nook
             keybd_event(0x11, 0, 2, UIntPtr.Zero);
         }
 
+        public static void SendWin(byte vk)
+        {
+            keybd_event(0x5B, 0, 0, UIntPtr.Zero);
+            keybd_event(vk, 0, 0, UIntPtr.Zero);
+            keybd_event(vk, 0, 2, UIntPtr.Zero);
+            keybd_event(0x5B, 0, 2, UIntPtr.Zero);
+        }
+
+        public static void OpenTrayOverflow()
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                SendWin(0x42); // Win + B
+                Thread.Sleep(60);
+                Key(0x0D, false); // Enter
+            });
+        }
+
+        public static void OpenQuickSettings()
+        {
+            ThreadPool.QueueUserWorkItem(_ => SendWin(0x41)); // Win + A
+        }
+
+        public static void OpenNotificationCenter()
+        {
+            ThreadPool.QueueUserWorkItem(_ => SendWin(0x4E)); // Win + N
+        }
+
         // --- Windows-Taskleiste -------------------------------------
         static IEnumerable<IntPtr> TaskbarWindows()
         {
@@ -3631,7 +3659,7 @@ namespace Nook
         readonly StackPanel mediaSp, timerSp, winSp;
         StackPanel textItems;
         bool winFirst;
-        readonly Btn micBtn, camBtn;
+        readonly Btn micBtn, camBtn, trayBtn;
         const double M = 18;
         readonly double h;
         string flashText;
@@ -3713,6 +3741,24 @@ namespace Nook
             camBtn.ToolTip = Loc.Tr("Kamera aktiv");
             camBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
+            trayBtn = new Btn(U.I("\uE70E", fs, Th.Text), Brushes.Transparent, Th.Hover, (h - 10) / 2, new Thickness(6, 3, 6, 3));
+            trayBtn.ToolTip = Loc.Tr("Infobereich (System-Tray)");
+            trayBtn.Click += () => N.OpenTrayOverflow();
+            trayBtn.MouseRightButtonUp += (s, e) =>
+            {
+                var pt = MenuAnchor(ScreenDip(e));
+                var mis = new List<MI>
+                {
+                    MI.Item(Loc.Tr("Infobereich (System-Tray) öffnen"), "\uE70E", "Win+B", () => N.OpenTrayOverflow()),
+                    MI.Item(Loc.Tr("Schnelleinstellungen (WLAN, Sound)"), "\uE713", "Win+A", () => N.OpenQuickSettings()),
+                    MI.Item(Loc.Tr("Benachrichtigungscenter"), "\uEA8F", "Win+N", () => N.OpenNotificationCenter()),
+                    MI.Sep(),
+                    MI.Item(app.TaskbarHidden ? Loc.Tr("Windows-Taskleiste zeigen") : Loc.Tr("Windows-Taskleiste ausblenden"), "\uE75B", () => app.ToggleWindowsTaskbar())
+                };
+                new MenuWindow(app, mis, pt).Open();
+                e.Handled = true;
+            };
+
             var sensorSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             sensorSp.Children.Add(micBtn);
             var camMargin = new Thickness(4, 0, 0, 0);
@@ -3720,9 +3766,9 @@ namespace Nook
             sensorSp.Children.Add(camBtn);
 
             // Inhalte in der eingestellten Reihenfolge
-            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "battery", batterySp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "timer", timerSp }, { "media", mediaSp } };
+            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "battery", batterySp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "timer", timerSp }, { "media", mediaSp }, { "tray", trayBtn } };
             var pOrder = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
+            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "tray", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
             winFirst = pOrder.IndexOf("windows") == 0;
             foreach (var id in pOrder)
             {
@@ -3897,6 +3943,7 @@ namespace Nook
             }
 
             camBtn.Visibility = app.CamInUse && showSensors ? Visibility.Visible : Visibility.Collapsed;
+            trayBtn.Visibility = c.B("pill.showTray", true) ? Visibility.Visible : Visibility.Collapsed;
             clock.Visibility = c.B("pill.showClock", true) ? Visibility.Visible : Visibility.Collapsed;
             bool sec = c.B("pill.clockSeconds", false);
             clock.Text = now.ToString(c.B("pill.clock24h", true) ? (sec ? "HH:mm:ss" : "HH:mm") : (sec ? "h:mm:ss tt" : "h:mm tt"), Th.Cul);
@@ -8824,6 +8871,7 @@ namespace Nook
                 Row(Loc.Tr("Datum"), null, Toggle("pill.showDate", null)),
                 Row(Loc.Tr("Wetter in der Pille"), Loc.Tr("nutzt Gerätestandort oder Fallback-Ort"), Toggle("pill.showWeather", null)),
                 Row(Loc.Tr("Akku anzeigen"), Loc.Tr("bei Laptops und Tablets"), Toggle("pill.showBattery", null)),
+                Row(Loc.Tr("Infobereich (System-Tray)"), Loc.Tr("Symbole und Schnelleinstellungen"), Toggle("pill.showTray", null)),
                 Row(Loc.Tr("Datumsformat"), null, Seg("pill.dateFormat", O("short:Kurz", "long:Lang", "numeric:Zahlen"), null)),
                 Row(Loc.Tr("Laufender Song"), null, Toggle("pill.showMedia", null)),
                 Row(Loc.Tr("Max. Breite des Songs"), null, Slider("pill.mediaWidth", 100, 400, 10, "px", false)),
@@ -9199,7 +9247,7 @@ namespace Nook
             bool sec = c.B("pill.clockSeconds", false);
             string df = c.S("pill.dateFormat", "short");
             var order = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "windows" }) if (!order.Contains(id)) order.Add(id);
+            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "tray", "windows" }) if (!order.Contains(id)) order.Add(id);
 
             // Teile in der eingestellten Reihenfolge: (art, element) – art "win" für die App-Icons
             var parts = new List<KeyValuePair<string, FrameworkElement>>();
@@ -9214,6 +9262,8 @@ namespace Nook
                     el = U.T("⛅ 20°", fs, Th.Text);
                 else if (id == "battery" && c.B("pill.showBattery", true))
                     el = U.T(" 85%", fs, Th.Text);
+                else if (id == "tray" && c.B("pill.showTray", true))
+                    el = U.T("\uE70E", fs, Th.Text);
                 else if (id == "media" && c.B("pill.showMedia", true))
                 {
                     var m = new StackPanel { Orientation = Orientation.Horizontal };
