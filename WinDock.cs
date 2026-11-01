@@ -163,8 +163,8 @@ namespace WinDock
   ""language"": ""en"",
   ""position"": { ""edge"": ""top"", ""align"": ""center"", ""offset"": 8, ""sideMargin"": 16, ""monitor"": 0, ""dragMode"": ""reset"" },
   ""pill"": { ""visible"": true, ""mode"": ""always"", ""height"": 34, ""fontSize"": 13, ""roundness"": 100, ""border"": false,
-              ""order"": [ ""mic"", ""clock"", ""date"", ""timer"", ""media"", ""windows"" ],
-              ""showClock"": true, ""clock24h"": true, ""clockSeconds"": false, ""showDate"": false, ""dateFormat"": ""short"",
+              ""order"": [ ""mic"", ""clock"", ""date"", ""weather"", ""battery"", ""timer"", ""media"", ""tray"", ""windows"" ],
+              ""showClock"": true, ""clock24h"": false, ""clockSeconds"": false, ""showDate"": false, ""dateFormat"": ""short"",
               ""showMedia"": true, ""mediaWidth"": 240, ""showMicMuted"": true,
               ""showWindows"": true, ""groupWindows"": true, ""maxWindowIcons"": 12, ""iconSize"": 0,
               ""clickTab"": ""start"", ""wheel"": ""volume"", ""middleClick"": ""close"",
@@ -181,7 +181,7 @@ namespace WinDock
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""notifications"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
   ""controls"": { ""showSearch"": true, ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
-  ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
+  ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""F"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
              ""webSearch"": ""https://www.google.com/search?q="", ""hideUninstallers"": true },
@@ -303,6 +303,208 @@ namespace WinDock
 
         static readonly Dictionary<string, string> Map = new Dictionary<string, string>
         {
+            { "Steuerung", "Controls" },
+            { "Heute", "Today" },
+            { "Zwischenablage", "Clipboard" },
+            { "Benachrichtigungen", "Notifications" },
+            { "Favoriten", "Favorites" },
+            { "Zuletzt", "Recent" },
+            { "Alle Apps", "All Apps" },
+            { "Offene Fenster", "Open Windows" },
+            { "Offene Fenster durchsuchen …", "Search open windows …" },
+            { "Offene Fenster, nach App sortiert", "Open windows, grouped by app" },
+            { "Apps werden geladen …", "Loading apps …" },
+            { "Apps durchsuchen oder rechnen …", "Search apps, settings, files or calculate …" },
+            { "Apps durchsuchen oder rechnen .", "Search apps, settings, files or calculate …" },
+            { "Keine Benachrichtigungen", "No notifications" },
+            { "Neue Benachrichtigungen erscheinen hier", "New notifications will appear here" },
+            { "Alle löschen", "Clear all" },
+            { "Aktualisieren", "Refresh" },
+            { "Windows-Zentrale", "Action Center" },
+            { "Sperren", "Lock" },
+            { "Energie sparen", "Sleep" },
+            { "Ruhezustand", "Hibernate" },
+            { "Abmelden", "Sign out" },
+            { "Neu starten", "Restart" },
+            { "Herunterfahren", "Shut down" },
+            { "Herunterfahren bestätigen", "Confirm shut down" },
+            { "zweimal drücken", "press twice" },
+            { "Knöpfe an/aus und Reihenfolge.", "Buttons on/off and order." },
+            { "Wach bleiben", "Keep awake" },
+            { "Übertragen", "Cast & Mirror" },
+            { "Stromsparmodus", "Battery saver" },
+            { "Nicht stören", "Do not disturb" },
+            { "Dunkler Modus", "Dark mode" },
+            { "Nachtmodus", "Night light" },
+            { "Netzbetrieb", "Charging" },
+            { "Akkubetrieb", "On battery" },
+            { "Pille", "Pill (Dock)" },
+            { "Allgemein", "General" },
+            { "Größe", "Scale / Size" },
+            { "Automatisch passt sich an 4K & Co. an", "Auto-adjusts for 4K and high-DPI displays" },
+            { "Öffnen", "Open & Shortcuts" },
+            { "Win-Taste öffnet WinDock", "Win key opens WinDock" },
+            { "Win+E, Win+L usw. bleiben", "Win+E, Win+L etc. are preserved" },
+            { "Zusätzliches Tastenkürzel", "Additional shortcut" },
+            { "öffnet und schließt WinDock von überall", "opens and closes WinDock from anywhere" },
+            { "Tippen ohne Suchfeld springt zur Suche", "Typing jumps directly to search" },
+            { "Einfach lostippen", "Type to search" },
+            { "Windows-Taskleiste ausblenden", "Hide Windows taskbar" },
+            { "Desktop-Icons bleiben, wo sie sind", "Desktop icons stay untouched" },
+            { "Mit Windows starten", "Start with Windows" },
+            { "in der Testversion ohne Wirkung", "no effect in test build" },
+            { "Anzeige", "Display" },
+            { "Pille anzeigen", "Pill display mode" },
+            { "Am Rand: nur ein Strich, Maus hin - Pille erscheint", "At edge: thin line, hover to reveal" },
+            { "always:Immer", "always:Always visible" },
+            { "lip:Am Rand", "lip:AutoHide at edge" },
+            { "hidden:Aus", "hidden:Hidden" },
+            { "Inhalt", "Content & Order" },
+            { "Reihenfolge in der Pille - Strg+ /  oder die Pfeile verschieben.", "Order in pill - Ctrl+Up/Down or arrow buttons to move." },
+            { "Uhrzeit", "Clock" },
+            { "24-Stunden-Format", "24-hour format" },
+            { "Sekunden anzeigen", "Show seconds" },
+            { "Datum", "Date" },
+            { "Wetter in der Pille", "Weather in pill" },
+            { "nutzt Gerätestandort oder Fallback-Ort", "uses device location or fallback city" },
+            { "Akku anzeigen", "Show battery status" },
+            { "bei Laptops und Tablets", "for laptops and tablets" },
+            { "Infobereich (System-Tray)", "System tray (Notification area)" },
+            { "Symbole und Schnelleinstellungen", "Icons and quick settings" },
+            { "Datumsformat", "Date format" },
+            { "short:Kurz", "short:Short" },
+            { "long:Lang", "long:Long" },
+            { "numeric:Zahlen", "numeric:Numeric" },
+            { "Laufender Song", "Now playing track" },
+            { "Max. Breite des Songs", "Max width of track title" },
+            { "Laufende Apps in der Pille", "Open apps on pill dock" },
+            { "Symbole für geöffnete Fenster", "Icons for open windows" },
+            { "Apps gruppieren", "Group app windows" },
+            { "aus = jedes Fenster ein eigenes Icon", "off = separate icon per window" },
+            { "Klick auf laufende App", "Click on running app" },
+            { "start:Start-Tab", "start:Start tab" },
+            { "last:Zuletzt", "last:Last tab" },
+            { "Mausrad über der Pille", "Mouse wheel on pill" },
+            { "volume:Lautstärke", "volume:Volume" },
+            { "tabs:Tabs wechseln", "tabs:Switch tabs" },
+            { "Mittelklick auf App", "Middle-click on app icon" },
+            { "close:Fenster schließen", "close:Close window" },
+            { "new:Neues Fenster", "new:New window" },
+            { "Pille reserviert Platz am Bildschirmrand", "Reserve screen space for pill" },
+            { "Fenster überlappen die Pille nicht", "Windows will not overlap the dock" },
+            { "Im Vollbild ausblenden", "Hide in fullscreen" },
+            { "bei Spielen und Videos", "in games and video playback" },
+            { "Breite", "Width" },
+            { "Höhe", "Height" },
+            { "Eckenradius", "Corner radius" },
+            { "Rahmenbreite", "Border width" },
+            { "0 = kein Rahmen", "0 = no border" },
+            { "Tab-Stil", "Tab style" },
+            { "pill:Pille", "pill:Pill" },
+            { "underline:Linie", "underline:Underline" },
+            { "text:Nur Text", "text:Text only" },
+            { "Tab-Beschriftung", "Tab labels" },
+            { "text:Text", "text:Text" },
+            { "icons:Symbole", "icons:Icons" },
+            { "both:Beides", "both:Both" },
+            { "Tabs ausrichten", "Tab alignment" },
+            { "left:Linksbündig", "left:Left" },
+            { "center:Mitte", "center:Center" },
+            { "Hilfe-Knopf", "Help button" },
+            { "F1 geht immer", "F1 shortcut always works" },
+            { "Menü-Knopf", "Menu button" },
+            { "Rechtsklick geht immer", "Right-click always works" },
+            { "Schließen beim Wegklicken", "Close on blur" },
+            { "Öffnen-Effekt", "Open animation" },
+            { "Dauer", "Duration" },
+            { "0 = sofort", "0 = instant" },
+            { "Schatten", "Drop shadow" },
+            { "Schattenstärke", "Shadow strength" },
+            { "Aussehen", "Appearance" },
+            { "Farben", "Colors" },
+            { "Schrift & Ecken", "Typography & Radius" },
+            { "Akzentfarbe", "Accent color" },
+            { "Hintergrund", "Background" },
+            { "Karten & Kacheln", "Cards & Tiles" },
+            { "Textfarbe", "Text color" },
+            { "Pillenhintergrund", "Pill background" },
+            { "Karten-Eckenradius", "Card corner radius" },
+            { "Karten-Stil", "Card style" },
+            { "filled:Gefüllt", "filled:Filled" },
+            { "border:Nur Rahmen", "border:Border only" },
+            { "glass:Glas", "glass:Glass (acrylic)" },
+            { "Schriftart", "Font family" },
+            { "Deckkraft", "Opacity" },
+            { "Position", "Position" },
+            { "Bildschirm", "Monitor" },
+            { "Kante", "Edge position" },
+            { "Abstand zum Rand", "Distance from screen edge" },
+            { "Seitenabstand", "Side margins" },
+            { "Einfach lostippen", "Type to search" },
+            { "Leertaste schaltet, Strg+ /  verschiebt. Ausgeschaltete Tabs werden gar nicht geladen.", "Space to toggle, Ctrl+Up/Down to reorder. Disabled tabs are not loaded." },
+            { "Kacheln an/aus und Reihenfolge - je drei pro Reihe.", "Tiles on/off and order - three per row." },
+            { "Suchleiste", "Search bar" },
+            { "wie im Windows-Startmenü", "like regular Windows start menu" },
+            { "Helligkeits-Regler", "Brightness slider" },
+            { "Lautstärke-Regler", "Volume slider" },
+            { "Medien-Karte", "Media player card" },
+            { "Cover, Titel, Spulen", "Cover, title, seek" },
+            { "Wetter-Karte", "Weather card" },
+            { "Timer-Karte", "Timer card" },
+            { "To-dos", "To-dos" },
+            { "Ort fürs Wetter", "Weather city / location" },
+            { "leer = kein Wetter", "blank = auto location" },
+            { "Einheit", "Temperature unit" },
+            { "Timer-Vorgaben", "Timer presets" },
+            { "Minuten, mit Komma getrennt", "minutes, separated by comma" },
+            { "Schnellzugriffe Links", "Quick links" },
+            { "Favoriten anzeigen", "Show favorites" },
+            { "Zuletzt benutzt", "Recent apps" },
+            { "Anzahl, 0 = aus", "count, 0 = off" },
+            { "Kompakte Liste", "Compact list" },
+            { "niedrigere Zeilen, kleinere Icons", "lower rows, smaller icons" },
+            { "Art anzeigen", "Show app type" },
+            { "z. B. ,Anwendung\" rechts in der Zeile", "e.g. 'Application' on the right" },
+            { "Websuche", "Web search engine" },
+            { "Deinstallationsprogramme ausblenden", "Hide uninstallers" },
+            { "Nach App gruppieren", "Group by app" },
+            { "aus = einfache Liste aller Fenster", "off = flat list of all windows" },
+            { "Taskbar-Tab anzeigen", "Show Taskbar tab" },
+            { "Taskbar-Tab im Panel anzeigen", "Show Taskbar tab in panel" },
+            { "aus = Tab verschwindet aus dem Panel", "off = tab disappears from panel" },
+            { "Offene Fenster im Panel", "Open windows in panel" },
+            { "Verlauf aktiv", "Clipboard history active" },
+            { "Einträge merken", "Max history items" },
+            { "Nach Neustart behalten", "Persist across restarts" },
+            { "nur Text, Bilder nie", "text only, images never stored" },
+            { "Filter beim Öffnen", "Default filter on open" },
+            { "An Pille anheften", "Pin to pill (dock)" },
+            { "Von Pille lösen", "Unpin from pill (dock)" },
+            { "Zu Favoriten", "Add to favorites" },
+            { "Von Favoriten lösen", "Remove from favorites" },
+            { "Öffnen", "Open" },
+            { "Als Administrator ausführen", "Run as administrator" },
+            { "Dateispeicherort öffnen", "Open file location" },
+            { "Deinstallieren", "Uninstall" },
+            { "Fenster", "Windows" },
+            { "Minimieren", "Minimize" },
+            { "Fenster schließen", "Close window" },
+            { "Alle Fenster schließen", "Close all windows" },
+            { "Task beenden", "End task" },
+            { "Überall", "Everywhere" },
+            { "WinDock öffnen / schließen", "Open / close WinDock" },
+            { "WinDock beenden", "Quit WinDock" },
+            { "Tipp: Win öffnet WinDock, F1 zeigt alle Tastenkürzel", "Tip: Win opens WinDock, F1 shows all shortcuts" },
+            { "Strg+S speichert  ·  Esc bricht ab  ·  Strg+F sucht  ·  Strg+Bild↑/↓ wechselt den Bereich  ·  Tab springt zum nächsten Feld  ·  Leertaste schaltet  ·  ←/→ ändert Werte", "Ctrl+S saves  ·  Esc cancels  ·  Ctrl+F searches  ·  Ctrl+PgUp/PgDn switches category  ·  Tab jumps to next field  ·  Space toggles  ·  Left/Right changes values" },
+            { "Im Panel: F1 zeigt alle Tastenkürzel.", "In panel: F1 shows all shortcuts." },
+            { "Version", "Version" },
+            { "Einstellungsdatei", "Settings file" },
+            { "config.json – zum Sichern oder Teilen", "config.json – for backup or sharing" },
+            { "Ordner öffnen", "Open folder" },
+            { "Quellcode, Updates und Fehler melden", "Source code, updates and issue reports" },
+            { "Stabile Version", "Release build" },
+            { "Testversion – läuft neben der stabilen Version, eigene Einstellungen", "Test build – runs alongside release, separate settings" },
+
             { "WLAN", "Wi-Fi" },
             { "Ausgabe", "Output" },
             { "Ausgabe: ", "Output: " },
@@ -3356,8 +3558,8 @@ namespace WinDock
         void LoadConfig()
         {
             Cfg = Cfg.Load(Path.Combine(BaseDir, "config.json"));
-            Loc.En = Cfg.S("language", "en") != "de";
-            Th.Cul = new CultureInfo(Loc.En ? "en-US" : "de-DE");
+            Loc.En = true;
+            Th.Cul = new CultureInfo("en-US");
             Th.Apply(Cfg);
             Th.K = ComputeScale(Cfg);
         }
@@ -5348,12 +5550,12 @@ namespace WinDock
                 ITab t = null;
                 switch (id)
                 {
-                    case "controls": t = new LazyTab("controls", Loc.Tr("Steuerung"), app, () => new ControlsTab(app)); break;
-                    case "today": t = new LazyTab("today", Loc.Tr("Heute"), app, () => new TodayTab(app)); break;
+                    case "controls": t = new LazyTab("controls", "Controls", app, () => new ControlsTab(app)); break;
+                    case "today": t = new LazyTab("today", "Today", app, () => new TodayTab(app)); break;
                     case "apps": t = new LazyTab("apps", "Apps", app, () => new AppsTab(app)); break;
                     case "taskbar": t = new LazyTab("taskbar", "Taskbar", app, () => new TaskbarTab(app)); break;
-                    case "clipboard": t = new LazyTab("clipboard", Loc.Tr("Zwischenablage"), app, () => new ClipboardTab(app)); break;
-                    case "notifications": t = new LazyTab("notifications", Loc.Tr("Benachrichtigungen"), app, () => new NotificationsTab(app)); break;
+                    case "clipboard": t = new LazyTab("clipboard", "Clipboard", app, () => new ClipboardTab(app)); break;
+                    case "notifications": t = new LazyTab("notifications", "Notifications", app, () => new NotificationsTab(app)); break;
                     case "power": t = new LazyTab("power", "Power", app, () => new PowerTab(app)); break;
                 }
                 if (t == null || tabs.Any(x => x.Id == t.Id)) continue;
@@ -8969,8 +9171,8 @@ namespace WinDock
 
         static readonly string[][] TabNames =
         {
-            new[] { "controls", "Steuerung" }, new[] { "today", "Heute" }, new[] { "apps", "Apps" },
-            new[] { "taskbar", "Taskbar" }, new[] { "clipboard", "Zwischenablage" }, new[] { "notifications", "Benachrichtigungen" }, new[] { "power", "Power" }
+            new[] { "controls", "Controls" }, new[] { "today", "Today" }, new[] { "apps", "Apps" },
+            new[] { "taskbar", "Taskbar" }, new[] { "clipboard", "Clipboard" }, new[] { "notifications", "Notifications" }, new[] { "power", "Power" }
         };
 
         static readonly string[][] Presets =
@@ -8990,13 +9192,13 @@ namespace WinDock
         // Bereiche der Seitenleiste: id, Name, Symbol
         static readonly string[][] Cats =
         {
-            new[] { "general", "Allgemein", "\uE713" },
-            new[] { "pill", "Pille", "\uE7F4" },
+            new[] { "general", "General", "\uE713" },
+            new[] { "pill", "Pill (Dock)", "\uE7F4" },
             new[] { "panel", "Panel", "\uE8A9" },
-            new[] { "design", "Design", "\uE790" },
+            new[] { "design", "Appearance", "\uE790" },
             new[] { "position", "Position", "\uE707" },
             new[] { "tabs", "Tabs", "\uE8FD" },
-            new[] { "info", "Info", "\uE946" }
+            new[] { "info", "About", "\uE946" }
         };
 
         class Sec
@@ -9792,10 +9994,9 @@ namespace WinDock
         {
             form.Children.Clear(); secs.Clear(); searchOf.Clear();
 
-            // ===== Allgemein =====
-            Section("general", "Sprache & Größe",
-                Row("Language · Sprache", null, Seg("language", new[] { "en:English", "de:Deutsch" }, null)),
-                Row(Loc.Tr("Größe"), Loc.Tr("Automatisch passt sich an 4K & Co. an"), Choice("theme.scale", () => L(Loc.Tr("auto|Automatisch (") + Math.Round(app.ComputeScale(new Cfg { Root = new Dictionary<string, object>() }) * 100) + " %)",
+            // ===== General =====
+            Section("general", "Display & Scaling",
+                Row(Loc.Tr("Scale"), Loc.Tr("Auto scales based on screen resolution"), Choice("theme.scale", () => L(Loc.Tr("auto|Auto (") + Math.Round(app.ComputeScale(new Cfg { Root = new Dictionary<string, object>() }) * 100) + " %)",
                     "0.9|90 %", "1|100 %", "1.15|115 %", "1.3|130 %", "1.5|150 %", "1.75|175 %", "2|200 %"), 190)));
             Section("general", "Öffnen",
                 Row(Loc.Tr("Win-Taste öffnet WinDock"), Loc.Tr("Win+E, Win+L usw. bleiben"), Toggle("behavior.winKey", null)),
