@@ -7855,10 +7855,36 @@ namespace WinDock
     // -----------------------------------------------------------------
     //  Tab: Apps
     // -----------------------------------------------------------------
+    public class SettingEntry
+    {
+        public string Name, Uri, Subtitle, Keywords;
+    }
+
     public class AppsTab : TabBase
     {
         public override string Id { get { return "apps"; } }
         public override string Title { get { return "Apps"; } }
+
+        static readonly SettingEntry[] KnownSettings = new[]
+        {
+            new SettingEntry { Name = "Display & Screen", Uri = "ms-settings:display", Subtitle = "System > Display", Keywords = "display screen brightness resolution scale monitor hdmi night light" },
+            new SettingEntry { Name = "Sound & Audio", Uri = "ms-settings:sound", Subtitle = "System > Sound", Keywords = "sound audio volume speakers microphone headphones output input" },
+            new SettingEntry { Name = "Notifications", Uri = "ms-settings:notifications", Subtitle = "System > Notifications", Keywords = "notifications alerts dnd focus banners" },
+            new SettingEntry { Name = "Do Not Disturb / Focus", Uri = "ms-settings:quiethours", Subtitle = "System > Focus", Keywords = "do not disturb quiet hours focus assist silent dnd" },
+            new SettingEntry { Name = "Power & Battery", Uri = "ms-settings:powersleep", Subtitle = "System > Power & Battery", Keywords = "battery power sleep saver hibernate charger energy" },
+            new SettingEntry { Name = "Bluetooth & Devices", Uri = "ms-settings:bluetooth", Subtitle = "Bluetooth & devices", Keywords = "bluetooth pair connect mouse keyboard headset controller wireless" },
+            new SettingEntry { Name = "Wi-Fi & Networks", Uri = "ms-settings:network-wifi", Subtitle = "Network & internet > Wi-Fi", Keywords = "wifi wi-fi wlan network internet ethernet connection wireless ssid" },
+            new SettingEntry { Name = "Personalization & Themes", Uri = "ms-settings:personalization", Subtitle = "Personalization", Keywords = "personalization wallpaper theme background colors dark mode light mode" },
+            new SettingEntry { Name = "Installed Apps", Uri = "ms-settings:appsfeatures", Subtitle = "Apps > Installed apps", Keywords = "apps installed programs software uninstall remove features" },
+            new SettingEntry { Name = "Default Apps", Uri = "ms-settings:defaultapps", Subtitle = "Apps > Default apps", Keywords = "default apps browser mail media player associations" },
+            new SettingEntry { Name = "Date & Time", Uri = "ms-settings:dateandtime", Subtitle = "Time & language > Date & time", Keywords = "date time clock timezone clock 24h region calendar" },
+            new SettingEntry { Name = "Windows Update", Uri = "ms-settings:windowsupdate", Subtitle = "Windows Update", Keywords = "update windows update check updates restart patch security" },
+            new SettingEntry { Name = "Taskbar Settings", Uri = "ms-settings:taskbar", Subtitle = "Personalization > Taskbar", Keywords = "taskbar start menu system tray overflow corner icons" },
+            new SettingEntry { Name = "Mouse & Touchpad", Uri = "ms-settings:mousetouchpad", Subtitle = "Bluetooth & devices > Mouse", Keywords = "mouse touchpad trackpad cursor speed click scroll sensitivity" },
+            new SettingEntry { Name = "Storage Sense", Uri = "ms-settings:storagesense", Subtitle = "System > Storage", Keywords = "storage disk drive space free clean temporary files ssd hdd" },
+            new SettingEntry { Name = "Privacy & Security", Uri = "ms-settings:privacy", Subtitle = "Privacy & security", Keywords = "privacy security camera microphone permissions antivirus defender" },
+            new SettingEntry { Name = "About this PC", Uri = "ms-settings:about", Subtitle = "System > About", Keywords = "about specs system processor ram computer name windows version cpu" }
+        };
 
         readonly SearchBox sb;
         readonly WrapPanel chips;
@@ -8014,9 +8040,37 @@ namespace WinDock
             {
                 double r;
                 if (Calc.TryEval(sb.Tb.Text, out r)) AddCalc(r);
+
+                // 1. Installed Apps
                 var hits = all.Select(a => new { a, s = AppIndex.Score(a.Name, q) + (starred.Contains(a.Parse) ? 50 : 0) })
-                              .Where(x => x.s > 0).OrderByDescending(x => x.s).Take(30).Select(x => x.a).ToList();
-                foreach (var a in hits) AddApp(a);
+                              .Where(x => x.s > 0).OrderByDescending(x => x.s).Take(10).Select(x => x.a).ToList();
+                if (hits.Count > 0)
+                {
+                    list.Add(U.Section(Loc.Tr("Apps")));
+                    foreach (var a in hits) AddApp(a);
+                }
+
+                // 2. Windows Settings
+                var matchSettings = KnownSettings
+                    .Where(s => s.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                s.Keywords.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .Take(5).ToList();
+                if (matchSettings.Count > 0)
+                {
+                    list.Add(U.Section(Loc.Tr("Einstellungen")));
+                    foreach (var s in matchSettings) AddSetting(s);
+                }
+
+                // 3. User Files & Documents
+                var matchFiles = FindUserFiles(q, 6);
+                if (matchFiles.Count > 0)
+                {
+                    list.Add(U.Section(Loc.Tr("Dateien & Dokumente")));
+                    foreach (var f in matchFiles) AddFile(f);
+                }
+
+                // 4. Online Search (Google)
+                list.Add(U.Section(Loc.Tr("Websuche")));
                 AddWeb(sb.Tb.Text.Trim());
             }
             if (list.Count > 0) list.Select(0);
@@ -8127,6 +8181,75 @@ namespace WinDock
                 try { Clipboard.SetText(Calc.Plain(r)); } catch { }
                 App.Pill.Flash(Loc.Tr("Ergebnis kopiert"), 1.5, false);
                 App.ClosePanel();
+            }, Brushes.Transparent);
+        }
+
+        List<string> FindUserFiles(string q, int max)
+        {
+            var res = new List<string>();
+            var dirs = new List<string>();
+            try { dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)); } catch { }
+            try { dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)); } catch { }
+            try { dirs.Add(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")); } catch { }
+            try { dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.Recent)); } catch { }
+
+            foreach (var dir in dirs)
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(dir) || !System.IO.Directory.Exists(dir)) continue;
+                    foreach (var f in System.IO.Directory.GetFiles(dir))
+                    {
+                        string fn = System.IO.Path.GetFileName(f);
+                        if (fn.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            res.Add(f);
+                            if (res.Count >= max) return res;
+                        }
+                    }
+                }
+                catch { }
+            }
+            return res;
+        }
+
+        void AddSetting(SettingEntry s)
+        {
+            var g = U.G(null, new[] { U.Px(32), U.Px(12), U.Star(1), U.Auto });
+            var ic = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Th.Surface2, Child = U.I("\uE713", 13, Th.Accent) };
+            U.Put(g, ic, 0, 0);
+
+            var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var nameTb = U.T(s.Name, 14, Th.Text, FontWeights.SemiBold);
+            var subTb = U.T(s.Subtitle, 11, Th.Muted);
+            sp.Children.Add(nameTb); sp.Children.Add(subTb);
+            U.Put(g, sp, 0, 2);
+
+            U.Put(g, U.T(Loc.Tr("Einstellung"), 11.5, Th.Muted, FontWeights.SemiBold), 0, 3);
+            rowApps.Add(null);
+            list.AddRow(SelList.Row(g, 46), () => { App.ClosePanel(); AppIndex.Open(s.Uri); }, Brushes.Transparent);
+        }
+
+        void AddFile(string filePath)
+        {
+            var g = U.G(null, new[] { U.Px(32), U.Px(12), U.Star(1), U.Auto });
+            var ic = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Th.Surface2, Child = U.I("\uE8A5", 13, Th.Text) };
+            U.Put(g, ic, 0, 0);
+
+            var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var nameTb = U.T(System.IO.Path.GetFileName(filePath), 14, Th.Text, FontWeights.SemiBold);
+            nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
+            var subTb = U.T(System.IO.Path.GetDirectoryName(filePath), 11, Th.Muted);
+            subTb.TextTrimming = TextTrimming.CharacterEllipsis;
+            sp.Children.Add(nameTb); sp.Children.Add(subTb);
+            U.Put(g, sp, 0, 2);
+
+            U.Put(g, U.T(Loc.Tr("Datei"), 11.5, Th.Muted, FontWeights.SemiBold), 0, 3);
+            rowApps.Add(null);
+            list.AddRow(SelList.Row(g, 46), () =>
+            {
+                App.ClosePanel();
+                try { Process.Start(new ProcessStartInfo(filePath) { UseShellExecute = true }); } catch { }
             }, Brushes.Transparent);
         }
 
@@ -8683,34 +8806,40 @@ namespace WinDock
 
         readonly StackPanel itemsSp = new StackPanel();
         readonly TextBlock countTb;
-        readonly ScrollViewer scroll;
+        readonly HashSet<string> dismissed = new HashSet<string>();
+        List<NotificationItem> currentList = new List<NotificationItem>();
         DateTime lastLoad = DateTime.MinValue;
 
         public NotificationsTab(WinDockApp app) : base(app)
         {
             var g = U.G(new[] { U.Px(46), U.Px(10), U.Star(1) }, null);
 
-            var topBar = U.G(null, new[] { U.Star(1), U.Auto, U.Px(8), U.Auto });
+            var topBar = U.G(null, new[] { U.Star(1), U.Auto, U.Px(6), U.Auto, U.Px(6), U.Auto });
             countTb = U.T(Loc.Tr("Benachrichtigungen"), 16, Th.Text, FontWeights.Bold);
             countTb.VerticalAlignment = VerticalAlignment.Center;
             U.Put(topBar, countTb, 0, 0);
 
-            var refreshBtn = U.IconBtn("\uE72C", 32, 12, Th.Surface2, Th.Hover, Th.Muted);
+            var clearBtn = new Btn(U.T(Loc.Tr("Alle löschen"), 12, Th.Text, FontWeights.SemiBold), Th.Surface2, Th.Hover, 8, new Thickness(10, 5, 10, 5));
+            clearBtn.ToolTip = Loc.Tr("Alle Benachrichtigungen löschen");
+            clearBtn.Click += () =>
+            {
+                foreach (var item in currentList) dismissed.Add(item.App + "|" + item.Title + "|" + item.Time.Ticks);
+                RenderNotifications(new List<NotificationItem>());
+            };
+            U.Put(topBar, clearBtn, 0, 1);
+
+            var refreshBtn = U.IconBtn("\uE72C", 30, 12, Th.Surface2, Th.Hover, Th.Muted);
             refreshBtn.ToolTip = Loc.Tr("Aktualisieren");
             refreshBtn.Click += () => LoadNotifications();
-            U.Put(topBar, refreshBtn, 0, 1);
+            U.Put(topBar, refreshBtn, 0, 3);
 
-            var winBtn = new Button
-            {
-                Content = U.T(Loc.Tr("Windows-Zentrale"), 12, Th.Accent, FontWeights.SemiBold),
-                Background = Th.Surface2, BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
-                Padding = new Thickness(10, 6, 10, 6)
-            };
-            winBtn.Click += (s, e) => { App.ClosePanel(); N.OpenNotificationCenter(); };
-            U.Put(topBar, winBtn, 0, 3);
+            var winBtn = new Btn(U.T(Loc.Tr("Info-Center"), 12, Th.Accent, FontWeights.SemiBold), Th.Surface2, Th.Hover, 8, new Thickness(10, 5, 10, 5));
+            winBtn.ToolTip = Loc.Tr("Windows-Benachrichtigungscenter öffnen (Win+N)");
+            winBtn.Click += () => { App.ClosePanel(); N.OpenNotificationCenter(); };
+            U.Put(topBar, winBtn, 0, 5);
             U.Put(g, topBar, 0, 0);
 
-            scroll = new ScrollViewer { Content = itemsSp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
+            var scroll = U.Scroll(itemsSp);
             U.Put(g, scroll, 2, 0);
 
             View = g;
@@ -8743,8 +8872,9 @@ namespace WinDock
 
         void RenderNotifications(List<NotificationItem> list)
         {
+            currentList = list != null ? list.Where(it => !dismissed.Contains(it.App + "|" + it.Title + "|" + it.Time.Ticks)).ToList() : new List<NotificationItem>();
             itemsSp.Children.Clear();
-            if (list == null || list.Count == 0)
+            if (currentList.Count == 0)
             {
                 countTb.Text = Loc.Tr("Benachrichtigungen");
                 var empty = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 60, 0, 0) };
@@ -8758,9 +8888,10 @@ namespace WinDock
                 return;
             }
 
-            countTb.Text = list.Count + " " + Loc.Tr("Benachrichtigungen");
-            foreach (var it in list)
+            countTb.Text = currentList.Count + " " + Loc.Tr("Benachrichtigungen");
+            foreach (var item in currentList)
             {
+                var it = item;
                 var card = new Border
                 {
                     Background = Th.CardBg, CornerRadius = new CornerRadius(12),
@@ -8770,8 +8901,8 @@ namespace WinDock
 
                 var cg = U.G(new[] { U.Auto, U.Auto, U.Auto }, null);
 
-                // Row 0: App + Time
-                var header = U.G(null, new[] { U.Px(24), U.Px(8), U.Star(1), U.Auto });
+                // Row 0: App + Time + Dismiss 'x'
+                var header = U.G(null, new[] { U.Px(24), U.Px(8), U.Star(1), U.Auto, U.Px(6), U.Auto });
                 U.Put(header, U.Letter(it.App, 18), 0, 0);
                 var appName = U.T(it.App, 12.5, Th.Text, FontWeights.SemiBold);
                 appName.VerticalAlignment = VerticalAlignment.Center;
@@ -8787,6 +8918,16 @@ namespace WinDock
                 var timeTb = U.T(timeStr, 11.5, Th.Muted);
                 timeTb.VerticalAlignment = VerticalAlignment.Center;
                 U.Put(header, timeTb, 0, 3);
+
+                var closeBtn = U.IconBtn("\uE711", 20, 10, Brushes.Transparent, Th.Hover, Th.Muted);
+                closeBtn.ToolTip = Loc.Tr("Schließen");
+                closeBtn.Click += () =>
+                {
+                    dismissed.Add(it.App + "|" + it.Title + "|" + it.Time.Ticks);
+                    currentList.Remove(it);
+                    RenderNotifications(currentList);
+                };
+                U.Put(header, closeBtn, 0, 5);
                 U.Put(cg, header, 0, 0);
 
                 // Row 1: Title
