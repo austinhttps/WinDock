@@ -2057,9 +2057,69 @@ namespace Nook
         static string coordFor; static double lat, lon;
         static int busy;
 
-        public static void FetchAsync(string city, bool fahrenheit, Action done)
+        // Try getting device coordinates from Windows location services via reflection
+        static bool TryGetDeviceLocation(out double deviceLat, out double deviceLon)
         {
-            if (string.IsNullOrWhiteSpace(city)) return;
+            deviceLat = double.NaN; deviceLon = double.NaN;
+            try
+            {
+                var type = Type.GetType("System.Device.Location.GeoCoordinateWatcher, System.Device, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089");
+                if (type == null) return false;
+                var watcher = Activator.CreateInstance(type);
+                var startMethod = type.GetMethod("Start", Type.EmptyTypes);
+                if (startMethod != null) startMethod.Invoke(watcher, null);
+
+                // Wait up to 1 second for hardware/Wi-Fi fix
+                for (int i = 0; i < 10; i++)
+                {
+                    Thread.Sleep(100);
+                    var posProp = type.GetProperty("Position");
+                    var pos = posProp != null ? posProp.GetValue(watcher, null) : null;
+                    var locProp = pos != null ? pos.GetType().GetProperty("Location") : null;
+                    var loc = locProp != null ? locProp.GetValue(pos, null) : null;
+                    if (loc != null)
+                    {
+                        var isUnkProp = loc.GetType().GetProperty("IsUnknown");
+                        bool isUnk = isUnkProp != null && (bool)isUnkProp.GetValue(loc, null);
+                        if (!isUnk)
+                        {
+                            var latProp = loc.GetType().GetProperty("Latitude");
+                            var lonProp = loc.GetType().GetProperty("Longitude");
+                            deviceLat = Convert.ToDouble(latProp.GetValue(loc, null), CultureInfo.InvariantCulture);
+                            deviceLon = Convert.ToDouble(lonProp.GetValue(loc, null), CultureInfo.InvariantCulture);
+                            break;
+                        }
+                    }
+                }
+                var stopMethod = type.GetMethod("Stop");
+                if (stopMethod != null) stopMethod.Invoke(watcher, null);
+                return !double.IsNaN(deviceLat) && !double.IsNaN(deviceLon);
+            }
+            catch { return false; }
+        }
+
+        // IP-based geolocation fallback
+        static bool TryGetIpLocation(WebClient wc, out double ipLat, out double ipLon, out string ipCity)
+        {
+            ipLat = double.NaN; ipLon = double.NaN; ipCity = "";
+            try
+            {
+                string json = wc.DownloadString("http://ip-api.com/json/?fields=status,city,country,lat,lon");
+                var d = Json.Parse(json) as Dictionary<string, object>;
+                if (d != null && Convert.ToString(d["status"]) == "success")
+                {
+                    ipLat = Convert.ToDouble(d["lat"], CultureInfo.InvariantCulture);
+                    ipLon = Convert.ToDouble(d["lon"], CultureInfo.InvariantCulture);
+                    if (d.ContainsKey("city")) ipCity = Convert.ToString(d["city"]);
+                    return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public static void FetchAsync(string fallbackCity, bool fahrenheit, Action done)
+        {
             if (Interlocked.Exchange(ref busy, 1) == 1) return;
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -2070,25 +2130,55 @@ namespace Nook
                     {
                         wc.Encoding = Encoding.UTF8;
                         wc.Headers[HttpRequestHeader.UserAgent] = "Nook";
-                        if (coordFor != city)
+
+                        double targetLat = double.NaN, targetLon = double.NaN;
+                        string targetPlace = "";
+
+                        // Priority 1: Device Location (Windows GPS / Wi-Fi positioning)
+                        if (TryGetDeviceLocation(out targetLat, out targetLon))
                         {
-                            var g = Json.Parse(wc.DownloadString("https://geocoding-api.open-meteo.com/v1/search?count=1&language=de&name=" + Uri.EscapeDataString(city.Trim()))) as Dictionary<string, object>;
-                            object res; Dictionary<string, object> first = null;
-                            if (g != null && g.TryGetValue("results", out res)) first = Json.Seq(res).FirstOrDefault() as Dictionary<string, object>;
-                            if (first == null) throw new Exception(Loc.Tr("Ort nicht gefunden"));
-                            lat = Convert.ToDouble(first["latitude"], CultureInfo.InvariantCulture);
-                            lon = Convert.ToDouble(first["longitude"], CultureInfo.InvariantCulture);
-                            Place = Convert.ToString(first["name"]);
-                            coordFor = city;
+                            targetPlace = Loc.Tr("Aktueller Ort");
                         }
-                        string url = string.Format(CultureInfo.InvariantCulture,
-                            "https://api.open-meteo.com/v1/forecast?latitude={0}&longitude={1}&current=temperature_2m,weather_code{2}",
-                            lat, lon, fahrenheit ? "&temperature_unit=fahrenheit" : "");
-                        var d = Json.Parse(wc.DownloadString(url)) as Dictionary<string, object>;
-                        var cur = (Dictionary<string, object>)d["current"];
-                        Temp = Convert.ToDouble(cur["temperature_2m"], CultureInfo.InvariantCulture);
-                        Code = Convert.ToInt32(cur["weather_code"], CultureInfo.InvariantCulture);
-                        Fetched = DateTime.Now;
+
+                        // Priority 2: IP-based location
+                        if (double.IsNaN(targetLat) && TryGetIpLocation(wc, out targetLat, out targetLon, out targetPlace))
+                        {
+                            if (string.IsNullOrEmpty(targetPlace)) targetPlace = Loc.Tr("Aktueller Ort");
+                        }
+
+                        // Priority 3: Fallback city from configuration
+                        if (double.IsNaN(targetLat) && !string.IsNullOrWhiteSpace(fallbackCity))
+                        {
+                            if (coordFor != fallbackCity)
+                            {
+                                var g = Json.Parse(wc.DownloadString("https://geocoding-api.open-meteo.com/v1/search?count=1&language=de&name=" + Uri.EscapeDataString(fallbackCity.Trim()))) as Dictionary<string, object>;
+                                object res; Dictionary<string, object> first = null;
+                                if (g != null && g.TryGetValue("results", out res)) first = Json.Seq(res).FirstOrDefault() as Dictionary<string, object>;
+                                if (first != null)
+                                {
+                                    lat = Convert.ToDouble(first["latitude"], CultureInfo.InvariantCulture);
+                                    lon = Convert.ToDouble(first["longitude"], CultureInfo.InvariantCulture);
+                                    Place = Convert.ToString(first["name"]);
+                                    coordFor = fallbackCity;
+                                }
+                            }
+                            targetLat = lat;
+                            targetLon = lon;
+                            targetPlace = Place;
+                        }
+
+                        if (!double.IsNaN(targetLat) && !double.IsNaN(targetLon))
+                        {
+                            string url = string.Format(CultureInfo.InvariantCulture,
+                                "https://api.open-meteo.com/v1/forecast?latitude={0}&longitude={1}&current=temperature_2m,weather_code{2}",
+                                targetLat, targetLon, fahrenheit ? "&temperature_unit=fahrenheit" : "");
+                            var d = Json.Parse(wc.DownloadString(url)) as Dictionary<string, object>;
+                            var cur = (Dictionary<string, object>)d["current"];
+                            Temp = Convert.ToDouble(cur["temperature_2m"], CultureInfo.InvariantCulture);
+                            Code = Convert.ToInt32(cur["weather_code"], CultureInfo.InvariantCulture);
+                            Place = targetPlace;
+                            Fetched = DateTime.Now;
+                        }
                     }
                 }
                 catch { Fetched = DateTime.Now.AddMinutes(-15); }
@@ -2903,6 +2993,10 @@ namespace Nook
             if (Cfg.B("pill.showMicMuted", true)) MicMuted = Audio.MicMuted();
             MicInUse = SensorMonitor.IsInUse("microphone");
             CamInUse = SensorMonitor.IsInUse("webcam");
+            if ((Cfg.B("pill.showWeather", true) || Cfg.B("today.showWeather", true)) && (DateTime.Now - Weather.Fetched).TotalMinutes >= 20)
+            {
+                Weather.FetchAsync(Cfg.S("today.weatherCity", "Berlin"), Cfg.S("today.weatherUnit", "C") == "F", () => { if (Pill != null) Pill.Refresh(); });
+            }
             if (Timer.CheckFinished())
             {
                 System.Media.SystemSounds.Exclamation.Play();
@@ -3444,7 +3538,7 @@ namespace Nook
     {
         readonly NookApp app;
         readonly Border body, winSep;
-        readonly TextBlock clock, date, media, timerTx, flashTx;
+        readonly TextBlock clock, date, weatherTx, media, timerTx, flashTx;
         readonly Border dot;
         readonly StackPanel mediaSp, timerSp, winSp;
         StackPanel textItems;
@@ -3490,7 +3584,9 @@ namespace Nook
 
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
             clock = U.T("", fs, Th.Text, FontWeights.SemiBold);
-            date = U.T("", fs, Th.Muted); date.Margin = new Thickness(8, 0, 0, 0);
+            date = U.T("", fs, Th.Muted);
+            weatherTx = U.T("", fs, Th.Text);
+            weatherTx.ToolTip = Loc.Tr("Wetter"); date.Margin = new Thickness(8, 0, 0, 0);
 
             timerSp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0) };
             var ti = U.I("", fs - 1, Th.Accent); ti.Margin = new Thickness(0, 1, 5, 0);
@@ -3526,9 +3622,9 @@ namespace Nook
             sensorSp.Children.Add(camBtn);
 
             // Inhalte in der eingestellten Reihenfolge
-            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "clock", clock }, { "date", date }, { "timer", timerSp }, { "media", mediaSp } };
+            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "timer", timerSp }, { "media", mediaSp } };
             var pOrder = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "clock", "date", "timer", "media", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
+            foreach (var id in new[] { "mic", "clock", "date", "weather", "timer", "media", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
             winFirst = pOrder.IndexOf("windows") == 0;
             foreach (var id in pOrder)
             {
@@ -3707,6 +3803,18 @@ namespace Nook
             string df = c.S("pill.dateFormat", "short");
             date.Text = now.ToString(df == "long" ? (Loc.En ? "dddd, MMMM d" : "dddd, d. MMMM") : df == "numeric" ? (Loc.En ? "MM/dd" : "dd.MM.") : Loc.Tr("ddd d. MMM"), Th.Cul);
 
+            bool showWeather = c.B("pill.showWeather", true);
+            if (showWeather && !double.IsNaN(Weather.Temp))
+            {
+                weatherTx.Visibility = Visibility.Visible;
+                weatherTx.Text = Weather.Symbol(Weather.Code) + " " + Math.Round(Weather.Temp) + (c.S("today.weatherUnit", "C") == "F" ? "°" : "°");
+                weatherTx.ToolTip = (Weather.Place.Length > 0 ? Weather.Place + ": " : "") + Weather.Text(Weather.Code);
+            }
+            else
+            {
+                weatherTx.Visibility = Visibility.Collapsed;
+            }
+
             bool flash = flashText != null && (flashSticky || now < flashUntil);
             if (!flash) flashText = null;
             flashTx.Text = flash ? flashText : "";
@@ -3731,7 +3839,7 @@ namespace Nook
                 if (el == winSep || el == winSp) continue;
                 var fe = el as FrameworkElement;
                 if (fe == null || el.Visibility != Visibility.Visible) continue;
-                double left = prev == null ? 0 : (el == date && prev == clock ? 8 : 12);
+                double left = prev == null ? 0 : ((el == date && prev == clock) || (el == weatherTx && (prev == clock || prev == date)) ? 8 : 12);
                 fe.Margin = new Thickness(left, 0, 0, 0);
                 prev = el;
             }
@@ -5611,16 +5719,9 @@ namespace Nook
         {
             Tick();
             string city = App.Cfg.S("today.weatherCity", "");
-            if (string.IsNullOrWhiteSpace(city))
-            {
-                wIcon.Text = "☁"; wTemp.Text = "–"; wDesc.Text = Loc.Tr("Ort in der Config setzen");
-            }
-            else
-            {
-                RenderWeather();
-                if ((DateTime.Now - Weather.Fetched).TotalMinutes > 20)
-                    Weather.FetchAsync(city, App.Cfg.S("today.weatherUnit", "C") == "F", RenderWeather);
-            }
+            RenderWeather();
+            if ((DateTime.Now - Weather.Fetched).TotalMinutes > 20)
+                Weather.FetchAsync(city, App.Cfg.S("today.weatherUnit", "C") == "F", RenderWeather);
         }
 
         void RenderWeather()
@@ -8281,6 +8382,7 @@ namespace Nook
                 Row(Loc.Tr("24-Stunden-Format"), null, Toggle("pill.clock24h", null)),
                 Row(Loc.Tr("Sekunden anzeigen"), null, Toggle("pill.clockSeconds", null)),
                 Row(Loc.Tr("Datum"), null, Toggle("pill.showDate", null)),
+                Row(Loc.Tr("Wetter in der Pille"), Loc.Tr("nutzt Gerätestandort oder Fallback-Ort"), Toggle("pill.showWeather", null)),
                 Row(Loc.Tr("Datumsformat"), null, Seg("pill.dateFormat", O("short:Kurz", "long:Lang", "numeric:Zahlen"), null)),
                 Row(Loc.Tr("Laufender Song"), null, Toggle("pill.showMedia", null)),
                 Row(Loc.Tr("Max. Breite des Songs"), null, Slider("pill.mediaWidth", 100, 400, 10, "px", false)),
@@ -8656,7 +8758,7 @@ namespace Nook
             bool sec = c.B("pill.clockSeconds", false);
             string df = c.S("pill.dateFormat", "short");
             var order = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "clock", "date", "timer", "media", "windows" }) if (!order.Contains(id)) order.Add(id);
+            foreach (var id in new[] { "mic", "clock", "date", "weather", "timer", "media", "windows" }) if (!order.Contains(id)) order.Add(id);
 
             // Teile in der eingestellten Reihenfolge: (art, element) – art "win" für die App-Icons
             var parts = new List<KeyValuePair<string, FrameworkElement>>();
@@ -8667,6 +8769,8 @@ namespace Nook
                     el = U.T(now.ToString(c.B("pill.clock24h", true) ? (sec ? "HH:mm:ss" : "HH:mm") : (sec ? "h:mm:ss tt" : "h:mm tt"), Th.Cul), fs, Th.Text, FontWeights.SemiBold);
                 else if (id == "date" && c.B("pill.showDate", false))
                     el = U.T(now.ToString(df == "long" ? (Loc.En ? "dddd, MMMM d" : "dddd, d. MMMM") : df == "numeric" ? (Loc.En ? "MM/dd" : "dd.MM.") : Loc.Tr("ddd d. MMM"), Th.Cul), fs, Th.Muted);
+                else if (id == "weather" && c.B("pill.showWeather", true))
+                    el = U.T("⛅ 20°", fs, Th.Text);
                 else if (id == "media" && c.B("pill.showMedia", true))
                 {
                     var m = new StackPanel { Orientation = Orientation.Horizontal };
