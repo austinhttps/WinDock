@@ -180,7 +180,7 @@ namespace Nook
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
-  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"" ], ""showVolume"": true, ""showMedia"": true },
+  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
@@ -440,6 +440,7 @@ namespace Nook
             { "Wach bleiben", "Keep awake" },
             { "Übertragen", "Cast" },
             { "Verbinden", "Connect" },
+            { "Helligkeits-Regler", "Brightness slider" },
             { "Energie sparen", "Sleep" },
             { "Abmelden", "Sign out" },
             { "Neu starten", "Restart" },
@@ -1157,6 +1158,13 @@ namespace Nook
         [DllImport("user32.dll")] public static extern bool RemoveClipboardFormatListener(IntPtr h);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern uint RegisterWindowMessage(string s);
         [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct PHYSICAL_MONITOR { public IntPtr hPhysicalMonitor; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string szPhysicalMonitorDescription; }
+        [DllImport("dxva2.dll", SetLastError = true)] public static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, out uint pdwNumberOfPhysicalMonitors);
+        [DllImport("dxva2.dll", SetLastError = true)] public static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
+        [DllImport("dxva2.dll", SetLastError = true)] public static extern bool DestroyPhysicalMonitors(uint dwPhysicalMonitorArraySize, PHYSICAL_MONITOR[] pPhysicalMonitorArray);
+        [DllImport("dxva2.dll", SetLastError = true)] public static extern bool GetMonitorBrightness(IntPtr hMonitor, out uint pdwMinimumBrightness, out uint pdwCurrentBrightness, out uint pdwMaximumBrightness);
+        [DllImport("dxva2.dll", SetLastError = true)] public static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwNewBrightness);
         [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr mon, ref MONITORINFO mi);
         [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int val, int size);
         [DllImport("dwmapi.dll")] public static extern int DwmRegisterThumbnail(IntPtr dest, IntPtr src, out IntPtr thumb);
@@ -1799,6 +1807,129 @@ namespace Nook
             return "";
         }
     }
+
+    // -----------------------------------------------------------------
+    //  Bildschirm-Helligkeit (WMI root\wmi + DXVA2 Fallback)
+    // -----------------------------------------------------------------
+    public static class BrightnessControl
+    {
+        static int currentVal = -1;
+        static DateTime lastRead = DateTime.MinValue;
+        static readonly object gate = new object();
+        static bool pendingSet;
+        static int targetVal;
+
+        public static int Get()
+        {
+            if ((DateTime.Now - lastRead).TotalSeconds < 2 && currentVal >= 0) return currentVal;
+            try
+            {
+                Type t = Type.GetTypeFromProgID("WbemScripting.SWbemLocator");
+                if (t != null)
+                {
+                    object loc = Activator.CreateInstance(t);
+                    object svc = t.InvokeMember("ConnectServer", System.Reflection.BindingFlags.InvokeMethod, null, loc, new object[] { ".", "root\\wmi" });
+                    object res = svc.GetType().InvokeMember("ExecQuery", System.Reflection.BindingFlags.InvokeMethod, null, svc, new object[] { "SELECT CurrentBrightness FROM WmiMonitorBrightness" });
+                    foreach (object item in (System.Collections.IEnumerable)res)
+                    {
+                        object b = item.GetType().InvokeMember("CurrentBrightness", System.Reflection.BindingFlags.GetProperty, null, item, null);
+                        if (b != null)
+                        {
+                            currentVal = Convert.ToInt32(b);
+                            lastRead = DateTime.Now;
+                            return currentVal;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            try
+            {
+                IntPtr hMon = N.MonitorFromWindow(IntPtr.Zero, 1);
+                uint count;
+                if (N.GetNumberOfPhysicalMonitorsFromHMONITOR(hMon, out count) && count > 0)
+                {
+                    var mons = new N.PHYSICAL_MONITOR[count];
+                    if (N.GetPhysicalMonitorsFromHMONITOR(hMon, count, mons))
+                    {
+                        uint min, cur, max;
+                        if (N.GetMonitorBrightness(mons[0].hPhysicalMonitor, out min, out cur, out max))
+                        {
+                            currentVal = (int)cur;
+                            lastRead = DateTime.Now;
+                        }
+                        N.DestroyPhysicalMonitors(count, mons);
+                        if (currentVal >= 0) return currentVal;
+                    }
+                }
+            }
+            catch { }
+
+            if (currentVal < 0) currentVal = 100;
+            return currentVal;
+        }
+
+        public static void Set(int val)
+        {
+            val = Math.Max(0, Math.Min(100, val));
+            currentVal = val;
+            lastRead = DateTime.Now;
+            lock (gate)
+            {
+                targetVal = val;
+                if (pendingSet) return;
+                pendingSet = true;
+            }
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(25);
+                int v;
+                lock (gate)
+                {
+                    v = targetVal;
+                    pendingSet = false;
+                }
+                bool ok = false;
+                try
+                {
+                    Type t = Type.GetTypeFromProgID("WbemScripting.SWbemLocator");
+                    if (t != null)
+                    {
+                        object loc = Activator.CreateInstance(t);
+                        object svc = t.InvokeMember("ConnectServer", System.Reflection.BindingFlags.InvokeMethod, null, loc, new object[] { ".", "root\\wmi" });
+                        object res = svc.GetType().InvokeMember("ExecQuery", System.Reflection.BindingFlags.InvokeMethod, null, svc, new object[] { "SELECT * FROM WmiMonitorBrightnessMethods" });
+                        foreach (object item in (System.Collections.IEnumerable)res)
+                        {
+                            item.GetType().InvokeMember("WmiSetBrightness", System.Reflection.BindingFlags.InvokeMethod, null, item, new object[] { 1, (byte)v });
+                            ok = true;
+                        }
+                    }
+                }
+                catch { }
+                if (!ok)
+                {
+                    try
+                    {
+                        IntPtr hMon = N.MonitorFromWindow(IntPtr.Zero, 1);
+                        uint count;
+                        if (N.GetNumberOfPhysicalMonitorsFromHMONITOR(hMon, out count) && count > 0)
+                        {
+                            var mons = new N.PHYSICAL_MONITOR[count];
+                            if (N.GetPhysicalMonitorsFromHMONITOR(hMon, count, mons))
+                            {
+                                for (int i = 0; i < count; i++)
+                                    N.SetMonitorBrightness(mons[i].hPhysicalMonitor, (uint)v);
+                                N.DestroyPhysicalMonitors(count, mons);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            });
+        }
+    }
+
 
     // -----------------------------------------------------------------
     //  Win-Taste abfangen (nur wenn sie allein gedrückt wird)
@@ -5534,7 +5665,7 @@ namespace Nook
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
-        readonly FillSlider vol;
+        readonly FillSlider bright, vol;
         readonly Border cover;
         readonly TextBlock mTitle, mArtist, mApp, tPos, tDur, playIc;
         readonly SeekBar seek;
@@ -5585,7 +5716,10 @@ namespace Nook
             var rowsDef = new List<GridLength>();
             int tileRows = (ids.Count + 2) / 3;
             for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(62)); rowsDef.Add(U.Px(10)); }
+            bool showBright = app.Cfg.B("controls.showBrightness", true);
             bool showVol = app.Cfg.B("controls.showVolume", true), showMedia = app.Cfg.B("controls.showMedia", true);
+            int brightRow = rowsDef.Count;
+            if (showBright) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(10)); }
             int volRow = rowsDef.Count;
             if (showVol) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(12)); }
             int mediaRow = rowsDef.Count;
@@ -5605,6 +5739,11 @@ namespace Nook
                 U.Put(g, rg, r * 2, 0);
             }
             tileActs = acts.ToArray();
+
+            bright = new FillSlider(48);
+            bright.SetIcon("\uE706");
+            bright.Changed += v => BrightnessControl.Set((int)Math.Round(v * 100));
+            if (showBright) U.Put(g, bright, brightRow, 0);
 
             vol = new FillSlider(48);
             vol.Changed += v => { Audio.Set(v); vol.SetIcon(Audio.Glyph(v, false)); };
@@ -5771,6 +5910,7 @@ namespace Nook
         public override void Shown()
         {
             RefreshVolume();
+            RefreshBrightness();
             audio.Set(true, Audio.DeviceName());
             RefreshMic();
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
@@ -5798,6 +5938,18 @@ namespace Nook
         public override void Tick()
         {
             if (!vol.Dragging) RefreshVolume();
+        }
+
+        void RefreshBrightness()
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                int b = BrightnessControl.Get();
+                App.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!bright.Dragging) bright.Value = Math.Max(0.0, Math.Min(1.0, b / 100.0));
+                }));
+            });
         }
 
         void RefreshVolume()
@@ -9006,6 +9158,7 @@ namespace Nook
             Section("tabs", "Steuerung",
                 Note(Loc.Tr("Kacheln an/aus und Reihenfolge – je drei pro Reihe.")),
                 OrderList("controls.tiles", TileItems(), 0, true),
+                Row(Loc.Tr("Helligkeits-Regler"), null, Toggle("controls.showBrightness", null)),
                 Row(Loc.Tr("Lautstärke-Regler"), null, Toggle("controls.showVolume", null)),
                 Row(Loc.Tr("Medien-Karte"), Loc.Tr("Cover, Titel, Spulen"), Toggle("controls.showMedia", null)));
 
@@ -9440,7 +9593,10 @@ namespace Nook
                 var rowsDef = new List<GridLength>();
                 int tileRows = (ids.Count + 2) / 3;
                 for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(62)); rowsDef.Add(U.Px(10)); }
+                bool showBright = c.B("controls.showBrightness", true);
                 bool showVol = c.B("controls.showVolume", true), showMedia = c.B("controls.showMedia", true);
+                int brightRow = rowsDef.Count;
+                if (showBright) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(10)); }
                 int volRow = rowsDef.Count;
                 if (showVol) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(12)); }
                 int mediaRow = rowsDef.Count;
@@ -9460,6 +9616,8 @@ namespace Nook
                     }
                     U.Put(g, rg, r * 2, 0);
                 }
+                var bSl = new FillSlider(48) { Value = 0.8 }; bSl.SetIcon("\uE706");
+                if (showBright) U.Put(g, bSl, brightRow, 0);
                 if (showVol) U.Put(g, new FillSlider(48) { Value = 0.62 }, volRow, 0);
                 if (showMedia)
                 {
