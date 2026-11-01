@@ -180,7 +180,7 @@ namespace Nook
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""notifications"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
-  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
+  ""controls"": { ""showSearch"": true, ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
@@ -441,6 +441,8 @@ namespace Nook
             { "Übertragen", "Cast" },
             { "Verbinden", "Connect" },
             { "Helligkeits-Regler", "Brightness slider" },
+            { "Suchleiste", "Search bar" },
+            { "wie im Windows-Startmenü", "like regular Windows start menu" },
             { "Stromsparmodus", "Battery saver" },
             { "Nicht stören", "Do not disturb" },
             { "Benachrichtigungen", "Notifications" },
@@ -5166,6 +5168,7 @@ namespace Nook
         readonly List<ITab> tabs = new List<ITab>();
         readonly Dictionary<string, Btn> tabBtns = new Dictionary<string, Btn>();
         ITab cur;
+        public ITab Cur { get { return cur is LazyTab ? ((LazyTab)cur).Real : cur; } }
         readonly double W, H;
         const double M = 34;
         public bool IsOpen;
@@ -5975,6 +5978,8 @@ namespace Nook
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
+        readonly SearchBox search;
+        bool suppressSearch;
         readonly FillSlider bright, vol;
         readonly Border cover;
         readonly TextBlock mTitle, mArtist, mApp, tPos, tDur, playIc;
@@ -6030,6 +6035,9 @@ namespace Nook
             var ids = app.Cfg.L("controls.tiles").Select(x => Convert.ToString(x)).Where(all.ContainsKey).Distinct().ToList();
             var acts = new List<Action>();
             var rowsDef = new List<GridLength>();
+            bool showSearch = app.Cfg.B("controls.showSearch", true);
+            if (showSearch) { rowsDef.Add(U.Px(46)); rowsDef.Add(U.Px(12)); }
+            int tileStartRow = rowsDef.Count;
             int tileRows = (ids.Count + 2) / 3;
             for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(62)); rowsDef.Add(U.Px(10)); }
             bool showBright = app.Cfg.B("controls.showBrightness", true);
@@ -6052,9 +6060,28 @@ namespace Nook
                     U.Put(rg, kv.Key, 0, cIdx * 2);
                     acts.Add(kv.Value);
                 }
-                U.Put(g, rg, r * 2, 0);
+                U.Put(g, rg, tileStartRow + r * 2, 0);
             }
             tileActs = acts.ToArray();
+
+            if (showSearch)
+            {
+                search = new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 14.5, true) { Height = 46 };
+                search.Tb.TextChanged += (s, e) =>
+                {
+                    if (search.Tb.Text.Length > 0 && !suppressSearch)
+                    {
+                        string q = search.Tb.Text;
+                        suppressSearch = true;
+                        search.Tb.Text = "";
+                        suppressSearch = false;
+                        App.Panel.Select("apps");
+                        var aTab = App.Panel.Cur as AppsTab;
+                        if (aTab != null) aTab.SetQuery(q);
+                    }
+                };
+                U.Put(g, search, 0, 0);
+            }
 
             bright = new FillSlider(48);
             bright.SetIcon("\uE706");
@@ -7019,6 +7046,13 @@ namespace Nook
         HashSet<string> starred = new HashSet<string>();
         bool suppress;
         const int Page = 30;
+
+        public void SetQuery(string q)
+        {
+            sb.Tb.Text = q;
+            sb.Tb.CaretIndex = q.Length;
+            sb.FocusBox();
+        }
 
         public AppsTab(NookApp app) : base(app)
         {
@@ -9805,6 +9839,7 @@ namespace Nook
             Section("tabs", "Steuerung",
                 Note(Loc.Tr("Kacheln an/aus und Reihenfolge – je drei pro Reihe.")),
                 OrderList("controls.tiles", TileItems(), 0, true),
+                Row(Loc.Tr("Suchleiste"), Loc.Tr("wie im Windows-Startmenü"), Toggle("controls.showSearch", null)),
                 Row(Loc.Tr("Helligkeits-Regler"), null, Toggle("controls.showBrightness", null)),
                 Row(Loc.Tr("Lautstärke-Regler"), null, Toggle("controls.showVolume", null)),
                 Row(Loc.Tr("Medien-Karte"), Loc.Tr("Cover, Titel, Spulen"), Toggle("controls.showMedia", null)));
@@ -10238,6 +10273,9 @@ namespace Nook
                     { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }, { "batterysaver", new[] { "0", Loc.Tr("Aus") } }, { "dnd", new[] { "0", Loc.Tr("Aus") } }
                 };
                 var rowsDef = new List<GridLength>();
+                bool showSearch = c.B("controls.showSearch", true);
+                if (showSearch) { rowsDef.Add(U.Px(46)); rowsDef.Add(U.Px(12)); }
+                int tileStartRow = rowsDef.Count;
                 int tileRows = (ids.Count + 2) / 3;
                 for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(62)); rowsDef.Add(U.Px(10)); }
                 bool showBright = c.B("controls.showBrightness", true);
@@ -10261,9 +10299,10 @@ namespace Nook
                         tile.Set(subs[ids[i]][0] == "1", subs[ids[i]][1]);
                         U.Put(rg, tile, 0, ci * 2);
                     }
-                    U.Put(g, rg, r * 2, 0);
+                    U.Put(g, rg, tileStartRow + r * 2, 0);
                 }
                 var bSl = new FillSlider(48) { Value = 0.8 }; bSl.SetIcon("\uE706");
+                if (showSearch) U.Put(g, new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 14.5, true) { Height = 46 }, 0, 0);
                 if (showBright) U.Put(g, bSl, brightRow, 0);
                 if (showVol) U.Put(g, new FillSlider(48) { Value = 0.62 }, volRow, 0);
                 if (showMedia)
