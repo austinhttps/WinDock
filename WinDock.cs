@@ -3775,6 +3775,7 @@ namespace WinDock
         {
             var toggle = new EventWaitHandle(false, EventResetMode.AutoReset, "WinDock_Toggle_v1" + Program.Ch);
             var quit = new EventWaitHandle(false, EventResetMode.AutoReset, "WinDock_Quit_v1" + Program.Ch);
+            try { toggle.Reset(); quit.Reset(); } catch { }
             var th = new Thread(() =>
             {
                 var hs = new WaitHandle[] { toggle, quit };
