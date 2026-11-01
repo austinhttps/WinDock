@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
-title Building Nook
+title Building WinDock
 
 rem --- Find the C# compiler (ships with Windows, .NET Framework 4.x) -----
 set "FW=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319"
@@ -12,11 +12,11 @@ if not exist "%FW%\csc.exe" (
   exit /b 1
 )
 
-rem --- A folder with "test" in its name builds the test channel NookTest.exe -
-set "OUT=Nook.exe"
+rem --- A folder with "test" in its name builds the test channel WinDockTest.exe -
+set "OUT=WinDock.exe"
 for %%I in ("%~dp0.") do set "DIRNAME=%%~nxI"
 echo %DIRNAME% | findstr /i "test" >nul
-if not errorlevel 1 set "OUT=NookTest.exe"
+if not errorlevel 1 set "OUT=WinDockTest.exe"
 
 rem --- Quit a running instance cleanly (restores the Windows taskbar) ------
 tasklist /fi "imagename eq %OUT%" 2>nul | find /i "%OUT%" >nul
@@ -27,7 +27,7 @@ if not errorlevel 1 (
 )
 
 set BASE=/nologo /codepage:65001 /target:winexe /optimize+ /out:%OUT% /lib:"%FW%\WPF" /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll
-if exist "nook.ico" set BASE=%BASE% /win32icon:nook.ico
+if exist "windock.ico" set BASE=%BASE% /win32icon:windock.ico
 
 rem --- Full variant with the Windows media API (cover art, progress) ------
 set "WM=%WINDIR%\System32\WinMetadata"
@@ -36,12 +36,12 @@ for %%F in (System.Runtime.dll System.Runtime.InteropServices.WindowsRuntime.dll
   if exist "%FW%\%%F" set WRT=!WRT! /r:"%FW%\%%F"
 )
 
-echo Building Nook ...
-"%FW%\csc.exe" %BASE% %WRT% Nook.cs > build.log 2>&1
+echo Building WinDock ...
+"%FW%\csc.exe" %BASE% %WRT% WinDock.cs > build.log 2>&1
 if errorlevel 1 (
   echo   Full variant not possible, building the basic variant without cover art ...
   echo   ^(the reason is in build.log^)
-  "%FW%\csc.exe" %BASE% Nook.cs > build-basic.log 2>&1
+  "%FW%\csc.exe" %BASE% WinDock.cs > build-basic.log 2>&1
   if errorlevel 1 (
     type build-basic.log
     echo.
@@ -58,7 +58,7 @@ if errorlevel 1 (
 echo.
 echo Done: %OUT%  -  variant: !VARIANT!
 echo.
-choice /c YN /m "Start Nook now"
+choice /c YN /m "Start WinDock now"
 if errorlevel 2 exit /b 0
 start "" "%OUT%"
 exit /b 0

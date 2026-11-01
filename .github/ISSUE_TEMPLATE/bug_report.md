@@ -13,7 +13,7 @@ labels: bug
 2.
 
 **Environment**
-- Nook version (bottom of the right-click menu):
+- WinDock version (bottom of the right-click menu):
 - Windows version:
 - Monitor resolution / scaling:
 

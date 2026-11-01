@@ -1,5 +1,5 @@
 // The GitHub Action overwrites this file with the release version.
-namespace NookSetup
+namespace WinDockSetup
 {
     static class SetupVersion
     {

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/logo.png" width="96" alt="Nook logo">
+<img src="docs/logo.png" width="96" alt="WinDock logo">
 
-# Nook
+# WinDock
 
 **A minimal, modern taskbar replacement for Windows 11.**
 A small pill at the edge of your screen that expands into a panel for controls, apps, windows, clipboard and more.
@@ -11,21 +11,20 @@ A small pill at the edge of your screen that expands into a panel for controls, 
 ![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4)
 ![Single file](https://img.shields.io/badge/source-one%20C%23%20file-D4B266)
 ![No install](https://img.shields.io/badge/install-none-2ea44f)
-[![Build](https://github.com/NixFabo/Nook/actions/workflows/build.yml/badge.svg)](https://github.com/NixFabo/Nook/actions/workflows/build.yml)
+[![Build](https://github.com/NixFabo/WinDock/actions/workflows/build.yml/badge.svg)](https://github.com/NixFabo/WinDock/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Nook-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/nook)
 
-[Features](#features) · [Get started](#get-started) · [Usage](#usage) · [Customize](#customize) · [FAQ](#faq) · [Support](#support) · [Deutsch](README.de.md)
+[Features](#features) · [Get started](#get-started) · [Usage](#usage) · [Customize](#customize) · [FAQ](#faq) · [Deutsch](README.de.md)
 
 <br>
 
-<img src="docs/screenshots/hero.png" alt="Nook panel open on the Windows desktop" width="100%">
+<img src="docs/screenshots/hero.png" alt="WinDock panel open on the Windows desktop" width="100%">
 
 </div>
 
 ---
 
-## Why Nook?
+## Why WinDock?
 
 - **Light.** One C# file, built with the compiler that already ships with Windows. No runtime to install, no background services, no telemetry.
 - **Out of the way.** The pill shows the time, the current song and your open apps, and hides itself in fullscreen games and videos.
@@ -36,7 +35,7 @@ A small pill at the edge of your screen that expands into a panel for controls, 
 
 ### The pill
 
-<img src="docs/screenshots/pill.png" alt="The Nook pill: clock, current song and open apps" width="640">
+<img src="docs/screenshots/pill.png" alt="The WinDock pill: clock, current song and open apps" width="640">
 
 Clock, date, the current song, a running timer, a muted-mic indicator and your open apps. Hover an app to pick one of its windows, right-click for its jump list (e.g. "New incognito window"), scroll to change the volume, drag the pill anywhere. It hides itself in fullscreen games and videos.
 
@@ -91,32 +90,32 @@ Press <kbd>Win</kbd> or click the pill and it grows into a panel with six tabs:
 
 ### Option A: installer (recommended)
 
-1. Download **`NookSetup.exe`** from the [latest release](https://github.com/NixFabo/Nook/releases/latest).
-2. Run it and click **Install**. No administrator rights needed: Nook is installed for your user only, to `%LOCALAPPDATA%\Programs\Nook`.
-3. Setup adds a **Start menu** shortcut and, if you leave the box checked, starts Nook **with Windows**. A desktop shortcut is optional.
+1. Download **`WinDockSetup.exe`** from the [latest release](https://github.com/NixFabo/WinDock/releases/latest).
+2. Run it and click **Install**. No administrator rights needed: WinDock is installed for your user only, to `%LOCALAPPDATA%\Programs\WinDock`.
+3. Setup adds a **Start menu** shortcut and, if you leave the box checked, starts WinDock **with Windows**. A desktop shortcut is optional.
 
-<img src="docs/screenshots/installer.png" alt="Nook Setup" width="420">
+<img src="docs/screenshots/installer.png" alt="WinDock Setup" width="420">
 
-Updating: run the newer `NookSetup.exe`, your settings stay. Uninstall: *Settings → Apps → Nook*.
+Updating: run the newer `WinDockSetup.exe`, your settings stay. Uninstall: *Settings → Apps → WinDock*.
 
 Windows SmartScreen may warn because the files are unsigned: **More info → Run anyway**.
 
 ### Portable
 
-Download **`Nook.exe`** from the same release, put it in its own folder (e.g. `C:\Tools\Nook`) and run it. Settings are stored next to the exe.
+Download **`WinDock.exe`** from the same release, put it in its own folder (e.g. `C:\Tools\WinDock`) and run it. Settings are stored next to the exe.
 
 ### Build it yourself (about 10 seconds)
 
 ```bat
-git clone https://github.com/NixFabo/Nook.git Nook
-cd Nook
+git clone https://github.com/NixFabo/WinDock.git WinDock
+cd WinDock
 build.bat
-installer\build-installer.bat   &:: optional, builds NookSetup.exe
+installer\build-installer.bat   &:: optional, builds WinDockSetup.exe
 ```
 
 `build.bat` uses `csc.exe` from .NET Framework 4.x, which is part of every Windows 10/11 installation. Nothing gets installed. It builds the **full** variant (media with cover art and seeking) and falls back to a **basic** variant if the Windows media API isn't available.
 
-On first start Nook creates `config.json` and a `data` folder next to the exe.
+On first start WinDock creates `config.json` and a `data` folder next to the exe.
 
 > **Start with Windows:** right-click the pill → **Start with Windows**, or *Settings → General → Start with Windows*.
 
@@ -141,7 +140,7 @@ Shortcuts inside tabs use <kbd>Alt</kbd>+letter, because plain typing goes to se
 
 ## Customize
 
-Right-click the pill → **Settings**. Search on the left, options in the middle, live preview on the right. <kbd>Ctrl</kbd>+<kbd>S</kbd> saves and applies instantly. The editor is only loaded while it's open, so Nook stays light.
+Right-click the pill → **Settings**. Search on the left, options in the middle, live preview on the right. <kbd>Ctrl</kbd>+<kbd>S</kbd> saves and applies instantly. The editor is only loaded while it's open, so WinDock stays light.
 
 | Section | Highlights |
 |---|---|
@@ -158,17 +157,17 @@ Everything is stored in `config.json`. Back it up or share it via right-click �
 
 Try a new version without touching your daily install:
 
-1. Put the new files in a folder whose name contains `test`, e.g. `Nook-Test`, and run `build.bat`. It builds **`NookTest.exe`**.
-2. On start it closes the stable Nook and copies its settings once.
+1. Put the new files in a folder whose name contains `test`, e.g. `WinDock-Test`, and run `build.bat`. It builds **`WinDockTest.exe`**.
+2. On start it closes the stable WinDock and copies its settings once.
 3. Switch back with right-click → **Switch to stable version**.
-4. Happy? Copy `Nook.cs` into your main folder and run `build.bat` there.
+4. Happy? Copy `WinDock.cs` into your main folder and run `build.bat` there.
 
 ## FAQ
 
 <details>
 <summary><b>The Windows taskbar is gone after a crash.</b></summary>
 
-Start Nook and quit it from the menu, or restart "Windows Explorer" in Task Manager.
+Start WinDock and quit it from the menu, or restart "Windows Explorer" in Task Manager.
 </details>
 
 <details>
@@ -186,24 +185,24 @@ You're running the basic variant. Check `build.log` to see why the full variant 
 <details>
 <summary><b>Bluetooth and night light open Settings instead of toggling.</b></summary>
 
-Windows doesn't offer a public API for toggling them, so Nook opens the right settings page.
+Windows doesn't offer a public API for toggling them, so WinDock opens the right settings page.
 </details>
 
 <details>
 <summary><b>Something went wrong.</b></summary>
 
-Errors are written to `data\error.log`. The running version is shown at the bottom of the right-click menu. Please attach both to an [issue](https://github.com/NixFabo/Nook/issues/new/choose).
+Errors are written to `data\error.log`. The running version is shown at the bottom of the right-click menu. Please attach both to an [issue](https://github.com/NixFabo/WinDock/issues/new/choose).
 </details>
 
 ## Project layout
 
 ```
-Nook.cs               the whole app (C# 5, WPF, .NET Framework 4.x)
+WinDock.cs               the whole app (C# 5, WPF, .NET Framework 4.x)
 build.bat             one-click build with the compiler built into Windows
-nook.ico              app icon
+windock.ico              app icon
 config.standard.json  all settings with default values
-installer/            NookSetup.exe: per-user installer (Setup.cs, manifest, build script)
-.github/workflows     CI build; tags like v1.0.0 publish a release with NookSetup.exe and Nook.exe
+installer/            WinDockSetup.exe: per-user installer (Setup.cs, manifest, build script)
+.github/workflows     CI build; tags like v1.0.0 publish a release with WinDockSetup.exe and WinDock.exe
 ```
 
 ## Releasing
@@ -215,25 +214,24 @@ git tag v1.0.0
 git push --tags
 ```
 
-The workflow builds `Nook.exe` and `NookSetup.exe`, stamps the version into both and publishes them as a GitHub release.
+The workflow builds `WinDock.exe` and `WinDockSetup.exe`, stamps the version into both and publishes them as a GitHub release.
 
 ## Support
 
-Nook is free and open source, and it stays that way: no ads, no tracking, no paid features.
+WinDock is free and open source, and it stays that way: no ads, no tracking, no paid features.
 If it makes your desktop a little nicer, you can buy me a coffee:
 
-<a href="https://ko-fi.com/nook"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Nook on Ko-fi"></a>
 
-You'll also find **Support Nook** in the pill's right-click menu. Starring the repo and reporting bugs help just as much. Thank you!
+You'll also find **Support WinDock** in the pill's right-click menu. Starring the repo and reporting bugs help just as much. Thank you!
 
 ## Contributing
 
-Issues and pull requests are welcome. Nook targets the C# 5 compiler that ships with Windows, so please avoid newer syntax (`$"..."`, `?.`, `nameof`, `out var`, expression-bodied members). The CI build checks every push.
+Issues and pull requests are welcome. WinDock targets the C# 5 compiler that ships with Windows, so please avoid newer syntax (`$"..."`, `?.`, `nameof`, `out var`, expression-bodied members). The CI build checks every push.
 
 ## Privacy
 
-Nook does not collect, store or send any personal data, and has no telemetry.
-It only goes online for one optional feature: if you set a **weather location**, the city name is sent to [Open-Meteo](https://open-meteo.com/) to look up the forecast. Leave the location empty and Nook never connects to the internet.
+WinDock does not collect, store or send any personal data, and has no telemetry.
+It only goes online for one optional feature: if you set a **weather location**, the city name is sent to [Open-Meteo](https://open-meteo.com/) to look up the forecast. Leave the location empty and WinDock never connects to the internet.
 Web search and quick links simply open your default browser.
 
 ## Code signing policy
@@ -242,7 +240,7 @@ Web search and quick links simply open your default browser.
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 -->
 
-Release binaries (`NookSetup.exe`, `Nook.exe`) are built from this repository by GitHub Actions. Only builds of tagged releases are signed, and every signing request is approved manually.
+Release binaries (`WinDockSetup.exe`, `WinDock.exe`) are built from this repository by GitHub Actions. Only builds of tagged releases are signed, and every signing request is approved manually.
 
 | Role | Members |
 |---|---|

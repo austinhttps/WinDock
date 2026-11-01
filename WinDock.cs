@@ -1,5 +1,5 @@
 // =====================================================================
-//  Nook – schlanker Taskleisten-Ersatz für Windows 11
+//  WinDock – schlanker Taskleisten-Ersatz für Windows 11
 //  Eine einzige Quelldatei. Bauen mit build.bat (nutzt den C#-Compiler,
 //  der in Windows bereits enthalten ist – keine Installation nötig).
 //  Aussehen und Verhalten kommen ausschließlich aus config.json.
@@ -35,21 +35,21 @@ using System.Windows.Threading;
 using Microsoft.Win32;
 
 // Datei-Infos (Explorer → Eigenschaften → Details); die Version setzt der GitHub-Build
-[assembly: AssemblyTitle("Nook")]
-[assembly: AssemblyProduct("Nook")]
+[assembly: AssemblyTitle("WinDock")]
+[assembly: AssemblyProduct("WinDock")]
 [assembly: AssemblyDescription("A minimal, modern taskbar replacement for Windows 11")]
-[assembly: AssemblyCompany("Nook contributors")]
-[assembly: AssemblyCopyright("Copyright (c) 2026 Nook contributors. MIT License.")]
-[assembly: AssemblyInformationalVersion(Nook.NookApp.Version)]
+[assembly: AssemblyCompany("WinDock contributors")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 WinDock contributors. MIT License.")]
+[assembly: AssemblyInformationalVersion(WinDock.WinDockApp.Version)]
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Einstieg
     // -----------------------------------------------------------------
     public static class Program
     {
-        // Kanal: "NookTest.exe" läuft als Testversion neben der stabilen "Nook.exe"
+        // Kanal: "WinDockTest.exe" läuft als Testversion neben der stabilen "WinDock.exe"
         // (eigene Config im eigenen Ordner). Es läuft immer nur eine von beiden.
         public static bool IsTest;
         public static string Ch { get { return IsTest ? "_Test" : ""; } }
@@ -64,12 +64,12 @@ namespace Nook
             IsTest = exe.IndexOf("test", StringComparison.OrdinalIgnoreCase) >= 0;
             bool quit = args.Any(a => a.Equals("--quit", StringComparison.OrdinalIgnoreCase));
             bool created;
-            var mutex = new Mutex(true, "Nook_SingleInstance_v1" + Ch, out created);
+            var mutex = new Mutex(true, "WinDock_SingleInstance_v1" + Ch, out created);
             if (!created)
             {
                 try
                 {
-                    var ev = EventWaitHandle.OpenExisting((quit ? "Nook_Quit_v1" : "Nook_Toggle_v1") + Ch);
+                    var ev = EventWaitHandle.OpenExisting((quit ? "WinDock_Quit_v1" : "WinDock_Toggle_v1") + Ch);
                     ev.Set();
                 }
                 catch { }
@@ -77,7 +77,7 @@ namespace Nook
             }
             if (quit) return;
             StopOther();
-            var app = new NookApp();
+            var app = new WinDockApp();
             app.Run();
             GC.KeepAlive(mutex);
         }
@@ -87,17 +87,17 @@ namespace Nook
         {
             try
             {
-                foreach (var p in Process.GetProcessesByName(IsTest ? "Nook" : "NookTest"))
+                foreach (var p in Process.GetProcessesByName(IsTest ? "WinDock" : "WinDockTest"))
                 {
                     try { OtherExe = p.MainModule.FileName; } catch { }
                     p.Dispose();
                 }
-                var ev = EventWaitHandle.OpenExisting("Nook_Quit_v1" + OtherCh);
+                var ev = EventWaitHandle.OpenExisting("WinDock_Quit_v1" + OtherCh);
                 ev.Set();
                 for (int i = 0; i < 40; i++)
                 {
                     Thread.Sleep(100);
-                    try { using (Mutex.OpenExisting("Nook_SingleInstance_v1" + OtherCh)) { } }
+                    try { using (Mutex.OpenExisting("WinDock_SingleInstance_v1" + OtherCh)) { } }
                     catch { break; }   // andere Version ist beendet
                 }
             }
@@ -344,7 +344,7 @@ namespace Nook
             { "Gewitter", "Thunderstorm" },
             { "Anwendung", "Application" },
             { "Config fehlerhaft – Standardwerte aktiv", "Config invalid – using defaults" },
-            { "Tipp: Win öffnet Nook, F1 zeigt alle Tastenkürzel", "Tip: Win opens Nook, F1 shows all shortcuts" },
+            { "Tipp: Win öffnet WinDock, F1 zeigt alle Tastenkürzel", "Tip: Win opens WinDock, F1 shows all shortcuts" },
             { "Timer abgelaufen", "Timer finished" },
             { "Einstellungen", "Settings" },
             { "Strg+,", "Ctrl+," },
@@ -354,7 +354,7 @@ namespace Nook
             { "Windows-Taskleiste zeigen", "Show Windows taskbar" },
             { "Windows-Taskleiste ausblenden", "Hide Windows taskbar" },
             { "Neu laden", "Reload" },
-            { "Nook beenden", "Quit Nook" },
+            { "WinDock beenden", "Quit WinDock" },
             { "Pille an Standardposition", "Reset pill position" },
             { "Einstellungen: Fehler – Details in data\\error.log", "Settings: error – details in data\\error.log" },
             { "Die Einstellungen konnten nicht gespeichert werden:\n", "The settings could not be saved:\n" },
@@ -494,7 +494,7 @@ namespace Nook
             { "Alle Fenster schließen", "Close all windows" },
             { "Fenster schließen", "Close window" },
             { "Überall", "Everywhere" },
-            { "Nook öffnen / schließen", "Open / close Nook" },
+            { "WinDock öffnen / schließen", "Open / close WinDock" },
             { "Tippen", "Type" },
             { "Springt direkt zur Suche", "Jumps straight to search" },
             { "Schließen", "Close" },
@@ -503,7 +503,7 @@ namespace Nook
             { "Strg+1 … 6", "Ctrl+1 … 6" },
             { "Direkt zu Tab", "Go to tab" },
             { "Menütaste", "Menu key" },
-            { "Menü zur Auswahl / Nook-Menü", "Context menu / Nook menu" },
+            { "Menü zur Auswahl / WinDock-Menü", "Context menu / WinDock menu" },
             { "Suchen oder rechnen", "Search or calculate" },
             { "Auswählen, öffnen", "Select, open" },
             { "Als Administrator", "As administrator" },
@@ -599,7 +599,7 @@ namespace Nook
             { "auto|Automatisch (", "auto|Automatic (" },
             { "Schrift", "Font" },
             { "Verhalten", "Behaviour" },
-            { "Win-Taste öffnet Nook", "Win key opens Nook" },
+            { "Win-Taste öffnet WinDock", "Win key opens WinDock" },
             { "Win+E, Win+L usw. bleiben", "Win+E, Win+L etc. keep working" },
             { "Tab bei Win-Taste", "Tab for Win key" },
             { "Einfach lostippen", "Type to search" },
@@ -628,7 +628,7 @@ namespace Nook
             { "Leertaste schaltet, Strg+↑/↓ verschiebt. Ausgeschaltete Tabs werden gar nicht geladen.", "Space toggles, Ctrl+↑/↓ moves. Disabled tabs aren't loaded at all." },
             { "Schnellzugriffe erscheinen als Chips über der App-Liste – Webadresse, Programm oder Ordner.", "Quick links show up as chips above the app list – web address, program or folder." },
             { "+ Schnellzugriff", "+ Quick link" },
-            { "Pille ausgeblendet – Nook öffnet sich mit der Win-Taste", "Pill hidden – Nook opens with the Win key" },
+            { "Pille ausgeblendet – WinDock öffnet sich mit der Win-Taste", "Pill hidden – WinDock opens with the Win key" },
             { "Erscheint, wenn die Maus den Strich am Rand berührt", "Appears when the mouse touches the line at the edge" },
             { "Zuhause 5G", "Home 5G" },
             { "Rechner", "Calculator" },
@@ -770,15 +770,13 @@ namespace Nook
             { "wenn die Maus die Pille verlässt", "after the mouse leaves the pill" },
             { "z. B. „Anwendung“ rechts in der Zeile", "e.g. “Application” at the right of the row" },
             { "Öffnen-Effekt", "Open effect" },
-            { "öffnet und schließt Nook von überall", "opens and closes Nook from anywhere" },
+            { "öffnet und schließt WinDock von überall", "opens and closes WinDock from anywhere" },
             { "Allgemein", "General" },
             { "Vorschau", "Preview" },
-            { "Nook unterstützen", "Support Nook" },
-            { "Nook ist kostenlos und Open Source. Ein Kaffee hilft, es weiter zu verbessern.", "Nook is free and open source. A coffee helps keep it improving." },
             { "Quellcode, Updates und Fehler melden", "Source code, updates and bug reports" },
             { "In der Testversion ohne Wirkung", "No effect in the test version" },
-            { "Nook startet jetzt mit Windows", "Nook now starts with Windows" },
-            { "Nook startet nicht mehr mit Windows", "Nook no longer starts with Windows" },
+            { "WinDock startet jetzt mit Windows", "WinDock now starts with Windows" },
+            { "WinDock startet nicht mehr mit Windows", "WinDock no longer starts with Windows" },
         };
 
         public static string Tr(string de)
@@ -1098,7 +1096,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Windows-API
@@ -1858,7 +1856,7 @@ namespace Nook
                     list.Add(new AudioDevice { Id = id, Name = NameOf(d, false) ?? id, IsDefault = id == def });
                 }
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
             return list;
         }
 
@@ -1872,7 +1870,7 @@ namespace Nook
                 Marshal.ReleaseComObject(pc);
                 return ok;
             }
-            catch (Exception ex) { NookApp.Log(ex); return false; }
+            catch (Exception ex) { WinDockApp.Log(ex); return false; }
         }
 
         // --- Lautstärke pro App -------------------------------------
@@ -1927,7 +1925,7 @@ namespace Nook
                     app.Vols.Add(vol);
                 }
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
             return order.Select(k => map[k]).OrderBy(a => a.System ? 1 : 0).ToList();
         }
 
@@ -2294,7 +2292,7 @@ namespace Nook
             try { PollRich(); fails = 0; }
             catch (Exception ex)
             {
-                if (fails == 0) NookApp.Log(ex);
+                if (fails == 0) WinDockApp.Log(ex);
                 if (++fails >= 3) useFb = true;
             }
         }
@@ -2565,7 +2563,7 @@ namespace Nook
                     using (var wc = new WebClient())
                     {
                         wc.Encoding = Encoding.UTF8;
-                        wc.Headers[HttpRequestHeader.UserAgent] = "Nook";
+                        wc.Headers[HttpRequestHeader.UserAgent] = "WinDock";
 
                         double targetLat = double.NaN, targetLon = double.NaN;
                         string targetPlace = "";
@@ -2785,7 +2783,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Icons im Hintergrund laden
@@ -2926,12 +2924,12 @@ namespace Nook
                 if (a.Shell) Process.Start("explorer.exe", "\"shell:AppsFolder\\" + a.Parse + "\"");
                 else Process.Start(a.Parse);
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         public static void Open(string target)
         {
-            try { Process.Start(target); } catch (Exception ex) { NookApp.Log(ex); }
+            try { Process.Start(target); } catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         public static int Score(string name, string q)
@@ -3216,12 +3214,11 @@ namespace Nook
         }
     }
 
-    public class NookApp : Application
+    public class WinDockApp : Application
     {
         public static event Action<IntPtr> ForegroundChanged;
-        public const string SupportUrl = "https://ko-fi.com/nook";
         public const string Version = "2026.10.14-11";
-        public static NookApp I;
+        public static WinDockApp I;
         public Cfg Cfg;
         public Store Store;
         public PillWindow Pill;
@@ -3270,7 +3267,7 @@ namespace Nook
             Apps.Load(Cfg.B("apps.hideUninstallers", true));
             Media = MediaSvc.Create();
 
-            var p = new HwndSourceParameters("NookMessages") { ParentWindow = new IntPtr(-3), WindowStyle = 0 };
+            var p = new HwndSourceParameters("WinDockMessages") { ParentWindow = new IntPtr(-3), WindowStyle = 0 };
             msgWin = new HwndSource(p);
             msgWin.AddHook(MsgProc);
             N.AddClipboardFormatListener(msgWin.Handle);
@@ -3300,12 +3297,12 @@ namespace Nook
             if (Cfg.Error != null) Pill.Flash(Loc.Tr("Config fehlerhaft – Standardwerte aktiv"), 5, false);
             else if (Store.Str("helpTipShown", null) == null)
             {
-                Pill.Flash(Loc.Tr("Tipp: Win öffnet Nook, F1 zeigt alle Tastenkürzel"), 8, false);
+                Pill.Flash(Loc.Tr("Tipp: Win öffnet WinDock, F1 zeigt alle Tastenkürzel"), 8, false);
                 Store.Set("helpTipShown", "1");
             }
         }
 
-        // Das Nook-Icon: Kachel, Pille, zwei Augen – in den Farben des Themes gezeichnet
+        // Das WinDock-Icon: Kachel, Pille, zwei Augen – in den Farben des Themes gezeichnet
         // Testversion: beim ersten Start Config und Daten der stabilen Version übernehmen
         void AdoptOtherConfig()
         {
@@ -3403,8 +3400,8 @@ namespace Nook
 
         void StartSignals()
         {
-            var toggle = new EventWaitHandle(false, EventResetMode.AutoReset, "Nook_Toggle_v1" + Program.Ch);
-            var quit = new EventWaitHandle(false, EventResetMode.AutoReset, "Nook_Quit_v1" + Program.Ch);
+            var toggle = new EventWaitHandle(false, EventResetMode.AutoReset, "WinDock_Toggle_v1" + Program.Ch);
+            var quit = new EventWaitHandle(false, EventResetMode.AutoReset, "WinDock_Quit_v1" + Program.Ch);
             var th = new Thread(() =>
             {
                 var hs = new WaitHandle[] { toggle, quit };
@@ -3599,7 +3596,7 @@ namespace Nook
 
         // --- Taskleiste & Arbeitsbereich -------------------------------
         // Die Windows-Taskleiste wird nur versteckt (nicht auf "automatisch ausblenden"
-        // gestellt). Den freien Platz gibt Nook über den Arbeitsbereich frei, und zwar
+        // gestellt). Den freien Platz gibt WinDock über den Arbeitsbereich frei, und zwar
         // ohne Systemmeldung – so ordnet der Desktop seine Icons nicht neu an.
 
         // Altlast der ersten Version: Auto-Ausblenden wieder zurückstellen
@@ -3689,8 +3686,8 @@ namespace Nook
                 {
                     if (k == null) return;
                     string exe = Process.GetCurrentProcess().MainModule.FileName;
-                    if (on) k.SetValue("Nook", "\"" + exe + "\"");
-                    else if (k.GetValue("Nook") != null) k.DeleteValue("Nook");
+                    if (on) k.SetValue("WinDock", "\"" + exe + "\"");
+                    else if (k.GetValue("WinDock") != null) k.DeleteValue("WinDock");
                 }
             }
             catch { }
@@ -3707,7 +3704,7 @@ namespace Nook
             SaveConfig(Cfg.Root);
             SetAutostart(on);
             if (Program.IsTest) Pill.Flash(Loc.Tr("In der Testversion ohne Wirkung"), 3, false);
-            else Pill.Flash(on ? Loc.Tr("Nook startet jetzt mit Windows") : Loc.Tr("Nook startet nicht mehr mit Windows"), 3, false);
+            else Pill.Flash(on ? Loc.Tr("WinDock startet jetzt mit Windows") : Loc.Tr("WinDock startet nicht mehr mit Windows"), 3, false);
         }
 
         // --- Menü, Einstellungen, Reload -----------------------------
@@ -3725,9 +3722,8 @@ namespace Nook
                 MI.Item(Loc.Tr("Neu laden"), "\uE72C", Reload),
                 MI.Item(Loc.Tr("Mit Windows starten"), Cfg.B("behavior.autostart", false) ? "\uE73E" : "\uE739", ToggleAutostart),
                 MI.Sep(),
-                MI.Item(Loc.Tr("Nook unterstützen"), "\uEB51", closeFirst(() => AppIndex.Open(SupportUrl))),
-                MI.Item(Loc.Tr("Nook beenden"), "\uE7E8", Quit),
-                MI.Head("Nook v" + Version + (Program.IsTest ? "  ·  TEST" : ""))
+                MI.Item(Loc.Tr("WinDock beenden"), "\uE7E8", Quit),
+                MI.Head("WinDock v" + Version + (Program.IsTest ? "  ·  TEST" : ""))
             };
             string otherExe = Store.Str("otherExe", null);
             if (otherExe != null && File.Exists(otherExe))
@@ -3770,7 +3766,7 @@ namespace Nook
             }
             catch (Exception ex)
             {
-                // Editor konnte nicht aufgebaut werden – Nook bleibt normal benutzbar
+                // Editor konnte nicht aufgebaut werden – WinDock bleibt normal benutzbar
                 Log(ex);
                 EditorWindow.Current = null;
                 try { if (ed != null) ed.Close(); } catch { }
@@ -3791,7 +3787,7 @@ namespace Nook
             catch (Exception ex)
             {
                 Log(ex);
-                MessageBox.Show(Loc.Tr("Die Einstellungen konnten nicht gespeichert werden:\n") + ex.Message, "Nook", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(Loc.Tr("Die Einstellungen konnten nicht gespeichert werden:\n") + ex.Message, "WinDock", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -3876,7 +3872,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Offene Fenster (für Taskbar-Tab und Pille)
@@ -3979,7 +3975,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Die Pille am Bildschirmrand
@@ -3997,7 +3993,7 @@ namespace Nook
 
     public class PillWindow : Window
     {
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Border body, winSep;
         readonly TextBlock clock, date, weatherTx, batteryIc, batteryTx, media, timerTx, flashTx;
         readonly StackPanel batterySp;
@@ -4026,13 +4022,13 @@ namespace Nook
         Point appDragStart;
         bool appIsDragging;
 
-        public PillWindow(NookApp a)
+        public PillWindow(WinDockApp a)
         {
             app = a;
             var c = a.Cfg;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; ShowActivated = false;
-            SizeToContent = SizeToContent.WidthAndHeight; Title = "Nook";
+            SizeToContent = SizeToContent.WidthAndHeight; Title = "WinDock";
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
 
@@ -4227,7 +4223,7 @@ namespace Nook
         Point ScreenDip(MouseEventArgs e)
         {
             var p = PointToScreen(e.GetPosition(this));
-            double sc = NookApp.Scale();
+            double sc = WinDockApp.Scale();
             return new Point(p.X / sc, p.Y / sc);
         }
 
@@ -4717,7 +4713,7 @@ namespace Nook
                     if (ws.Count < 1) { if (peek != null) peek.HideNow(); return; }
                     if (peek == null) peek = new PeekWindow(app);
                     var p = hoverBtn.PointToScreen(new Point(0, 0));
-                    double sc = NookApp.Scale();
+                    double sc = WinDockApp.Scale();
                     peek.ShowFor(hoverKey, ws, new Rect(p.X / sc, p.Y / sc, hoverBtn.ActualWidth, hoverBtn.ActualHeight));
                 }
                 return;
@@ -4855,7 +4851,7 @@ namespace Nook
             if (Mode != "lip" || app.FullscreenActive || hiddenForPanel) return;
             NX.POINT p;
             if (!NX.GetCursorPos(out p)) return;
-            double sc = NookApp.Scale();
+            double sc = WinDockApp.Scale();
             var c = new Point(p.X / sc, p.Y / sc);
             var r = app.PillRect();
             var mon = app.MonitorDip();
@@ -4907,7 +4903,7 @@ namespace Nook
     // -----------------------------------------------------------------
     public class MenuWindow : Window
     {
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Point anchor;
         bool closing;
         readonly List<Btn> rows = new List<Btn>();
@@ -4918,15 +4914,15 @@ namespace Nook
         OutsideClick outside;
         public static MenuWindow Current;
 
-        public MenuWindow(NookApp a, List<KeyValuePair<string, Action>> items, Point anchorDip)
+        public MenuWindow(WinDockApp a, List<KeyValuePair<string, Action>> items, Point anchorDip)
             : this(a, items.Select(kv => kv.Key == null ? MI.Sep() : MI.Item(kv.Key, null, kv.Value)).ToList(), anchorDip) { }
 
-        public MenuWindow(NookApp a, List<MI> items, Point anchorDip)
+        public MenuWindow(WinDockApp a, List<MI> items, Point anchorDip)
         {
             app = a; anchor = anchorDip;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
-            Title = "Nook Menü";
+            Title = "WinDock Menü";
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             var sp = new StackPanel { MinWidth = 230 };
@@ -5039,7 +5035,7 @@ namespace Nook
             SetSel(0);
             openedAt = DateTime.Now;
             outside.Start();
-            NookApp.ForegroundChanged += fgHandler;
+            WinDockApp.ForegroundChanged += fgHandler;
         }
 
         public void CloseMenu()
@@ -5047,7 +5043,7 @@ namespace Nook
             if (closing) return;
             closing = true;
             if (outside != null) outside.Stop();
-            if (fgHandler != null) NookApp.ForegroundChanged -= fgHandler;
+            if (fgHandler != null) WinDockApp.ForegroundChanged -= fgHandler;
             if (Current == this) Current = null;
             Close();
             if (app.Panel != null && app.Panel.IsOpen) app.Dispatcher.BeginInvoke(new Action(app.Panel.Refocus), DispatcherPriority.Input);
@@ -5074,11 +5070,11 @@ namespace Nook
 
     public class LazyTab : ITab
     {
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Func<ITab> factory;
         ITab real;
 
-        public LazyTab(string id, string title, NookApp app, Func<ITab> factory)
+        public LazyTab(string id, string title, WinDockApp app, Func<ITab> factory)
         {
             Id = id;
             Title = title;
@@ -5110,8 +5106,8 @@ namespace Nook
 
     public abstract class TabBase : ITab
     {
-        protected readonly NookApp App;
-        protected TabBase(NookApp app) { App = app; }
+        protected readonly WinDockApp App;
+        protected TabBase(WinDockApp app) { App = app; }
         public abstract string Id { get; }
         public abstract string Title { get; }
         public FrameworkElement View { get; protected set; }
@@ -5185,7 +5181,7 @@ namespace Nook
 
     public class PanelWindow : Window
     {
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Border shell, clip, host;
         readonly Grid inner, barGrid;
         readonly TextBlock barClock, barDate;
@@ -5215,7 +5211,7 @@ namespace Nook
         readonly TranslateTransform shellMove = new TranslateTransform();
         bool down = true;
 
-        public PanelWindow(NookApp a)
+        public PanelWindow(WinDockApp a)
         {
             app = a;
             var c = a.Cfg;
@@ -5226,7 +5222,7 @@ namespace Nook
 
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; ShowActivated = true;
-            Width = (W + 2 * M) * k; Height = (H + 2 * M) * k; Title = "Nook Panel";
+            Width = (W + 2 * M) * k; Height = (H + 2 * M) * k; Title = "WinDock Panel";
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             FontFamily = Th.Font;
@@ -5275,7 +5271,7 @@ namespace Nook
             gear.Click += () =>
             {
                 var p = gear.PointToScreen(new Point(16, down ? 34 : 0));
-                double sc = NookApp.Scale();
+                double sc = WinDockApp.Scale();
                 app.ShowMenu(new Point(p.X / sc, p.Y / sc));
             };
             if (c.B("panel.showHelpButton", true)) right.Children.Add(helpBtn);
@@ -5302,7 +5298,7 @@ namespace Nook
             {
                 if (e.Handled || InsideTextBox(e.OriginalSource as DependencyObject)) return;
                 var p = PointToScreen(e.GetPosition(this));
-                double sc = NookApp.Scale();
+                double sc = WinDockApp.Scale();
                 app.ShowMenu(new Point(p.X / sc, p.Y / sc));
                 e.Handled = true;
             };
@@ -5436,7 +5432,7 @@ namespace Nook
             try
             {
                 var p = shell.PointToScreen(new Point(0, 0));
-                double sc = NookApp.Scale();
+                double sc = WinDockApp.Scale();
                 return new Rect(p.X / sc, p.Y / sc, W * Th.K, curH * Th.K);
             }
             catch { return app.PillRect(); }
@@ -5472,7 +5468,7 @@ namespace Nook
         public Point GearPoint()
         {
             var p = gearBtn.PointToScreen(new Point(16, down ? 34 : 0));
-            double sc = NookApp.Scale();
+            double sc = WinDockApp.Scale();
             return new Point(p.X / sc, p.Y / sc);
         }
 
@@ -5768,7 +5764,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // Kachel wie im Vorbild (Icon-Kreis, Titel, Untertitel, Pfeil)
     public class Tile : Btn
@@ -6026,7 +6022,7 @@ namespace Nook
             return b;
         }
 
-        public ControlsTab(NookApp app) : base(app)
+        public ControlsTab(WinDockApp app) : base(app)
         {
             CoverDefault = MakeCoverBrush();
             wifi = new Tile("\uE701", "WLAN", true);
@@ -6203,13 +6199,13 @@ namespace Nook
                 if (wifi.IsVisible)
                 {
                     var p = wifi.PointToScreen(new Point(0, 0));
-                    double sc = NookApp.Scale();
+                    double sc = WinDockApp.Scale();
                     r = new Rect(p.X / sc, p.Y / sc, wifi.ActualWidth * Th.K, wifi.ActualHeight * Th.K);
                 }
                 else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
                 WifiFlyout.Toggle(App, r);
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         void OpenBluetooth()
@@ -6220,13 +6216,13 @@ namespace Nook
                 if (bt.IsVisible)
                 {
                     var p = bt.PointToScreen(new Point(0, 0));
-                    double sc = NookApp.Scale();
+                    double sc = WinDockApp.Scale();
                     r = new Rect(p.X / sc, p.Y / sc, bt.ActualWidth * Th.K, bt.ActualHeight * Th.K);
                 }
                 else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
                 BluetoothFlyout.Toggle(App, r);
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         void OpenAudio()
@@ -6237,13 +6233,13 @@ namespace Nook
                 if (audio.IsVisible)
                 {
                     var p = audio.PointToScreen(new Point(0, 0));
-                    double sc = NookApp.Scale();
+                    double sc = WinDockApp.Scale();
                     r = new Rect(p.X / sc, p.Y / sc, audio.ActualWidth * Th.K, audio.ActualHeight * Th.K);
                 }
                 else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
                 AudioFlyout.Toggle(App, r);
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         void ToggleAwake()
@@ -6336,7 +6332,7 @@ namespace Nook
 
         static void Settings(string uri)
         {
-            NookApp.I.ClosePanel();
+            WinDockApp.I.ClosePanel();
             AppIndex.Open(uri);
         }
 
@@ -6519,7 +6515,7 @@ namespace Nook
         DateTime weekFor = DateTime.MinValue;
         const double RingD = 84, RingT = 6, TodoD = 30, TodoT = 3;
 
-        public TodayTab(NookApp app) : base(app)
+        public TodayTab(WinDockApp app) : base(app)
         {
             var g = U.G(null, new[] { U.Star(2.9), U.Px(12), U.Star(4.4), U.Px(12), U.Star(3.7) });
 
@@ -6939,7 +6935,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // Suchfeld mit Platzhalter
     public class SearchBox : Border
@@ -7015,7 +7011,7 @@ namespace Nook
                 if (ContextRequested != null)
                 {
                     var p = b.PointToScreen(e.GetPosition(b));
-                    double sc = NookApp.Scale();
+                    double sc = WinDockApp.Scale();
                     ContextRequested(idx, new Point(p.X / sc, p.Y / sc));
                 }
                 e.Handled = true;
@@ -7049,7 +7045,7 @@ namespace Nook
             if (Sel < 0 || Sel >= rows.Count) return new Point();
             var r = rows[Sel];
             var p = r.PointToScreen(new Point(40, r.ActualHeight));
-            double sc = NookApp.Scale();
+            double sc = WinDockApp.Scale();
             return new Point(p.X / sc, p.Y / sc);
         }
 
@@ -7091,7 +7087,7 @@ namespace Nook
             sb.FocusBox();
         }
 
-        public AppsTab(NookApp app) : base(app)
+        public AppsTab(WinDockApp app) : base(app)
         {
             var g = U.G(new[] { U.Px(54), U.Auto, U.Px(8), U.Star(1) }, null);
             sb = new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 16, true);
@@ -7372,7 +7368,7 @@ namespace Nook
         string sig = "";
         bool suppress;
 
-        public TaskbarTab(NookApp app) : base(app)
+        public TaskbarTab(WinDockApp app) : base(app)
         {
             var g = U.G(new[] { U.Px(54), U.Px(10), U.Star(1) }, null);
             sb = new SearchBox(Loc.Tr("Offene Fenster durchsuchen …"), "", 16, true);
@@ -7525,7 +7521,7 @@ namespace Nook
         List<ClipItem> shown = new List<ClipItem>();
         bool visible;
 
-        public ClipboardTab(NookApp app) : base(app)
+        public ClipboardTab(WinDockApp app) : base(app)
         {
             filter = app.Cfg.S("clipboard.defaultFilter", "all");
             if (filter != "all" && filter != "text" && filter != "image" && filter != "link") filter = "all";
@@ -7900,7 +7896,7 @@ namespace Nook
         readonly ScrollViewer scroll;
         DateTime lastLoad = DateTime.MinValue;
 
-        public NotificationsTab(NookApp app) : base(app)
+        public NotificationsTab(WinDockApp app) : base(app)
         {
             var g = U.G(new[] { U.Px(46), U.Px(10), U.Star(1) }, null);
 
@@ -8034,7 +8030,7 @@ namespace Nook
         readonly Dictionary<string, TextBlock> labels = new Dictionary<string, TextBlock>();
         readonly Dictionary<string, string> names = new Dictionary<string, string>();
 
-        public PowerTab(NookApp app) : base(app)
+        public PowerTab(WinDockApp app) : base(app)
         {
             var g = U.G(new[] { U.Auto, U.Px(14), U.Auto }, null);
             var defs = new Dictionary<string, Func<UIElement>>
@@ -8103,7 +8099,7 @@ namespace Nook
         static void Run(string exe, string args)
         {
             try { Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = false, CreateNoWindow = true }); }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         public override void Shown() { Disarm(); Tick(); }
@@ -8127,7 +8123,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Menüeintrag
@@ -8228,7 +8224,7 @@ namespace Nook
     }
 
     // -----------------------------------------------------------------
-    //  Klick außerhalb von Nook erkennen (nur solange das Panel offen ist)
+    //  Klick außerhalb von WinDock erkennen (nur solange das Panel offen ist)
     // -----------------------------------------------------------------
     public class OutsideClick
     {
@@ -8238,7 +8234,7 @@ namespace Nook
         readonly Func<IntPtr, bool> inside;
         static readonly uint Me = (uint)Process.GetCurrentProcess().Id;
 
-        // Standard: alles außerhalb von Nook zählt als "außen"
+        // Standard: alles außerhalb von WinDock zählt als "außen"
         public OutsideClick(Action a) { onOutside = a; }
 
         // Eigene Prüfung: inside(rootFenster) = true -> kein Schließen
@@ -8352,7 +8348,7 @@ namespace Nook
                     if (tasks.Any(t => Matches(t.Path, exeName, exeDir))) return tasks;
                 }
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
             return res;
         }
 
@@ -8434,7 +8430,7 @@ namespace Nook
                 if (!string.IsNullOrEmpty(t.Dir) && Directory.Exists(t.Dir)) psi.WorkingDirectory = t.Dir;
                 Process.Start(psi);
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
     }
 
@@ -8480,8 +8476,8 @@ namespace Nook
         static void Start(ProcessStartInfo psi)
         {
             try { Process.Start(psi); }
-            catch (System.ComponentModel.Win32Exception ex) { if (ex.NativeErrorCode != 1223) NookApp.Log(ex); }   // 1223 = UAC abgebrochen
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (System.ComponentModel.Win32Exception ex) { if (ex.NativeErrorCode != 1223) WinDockApp.Log(ex); }   // 1223 = UAC abgebrochen
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
         public static void RunAsAdmin(string path)
@@ -8510,7 +8506,7 @@ namespace Nook
         }
 
         // Menü für einen Eintrag in der App-Suche
-        public static List<MI> ForApp(NookApp app, AppEntry a, Action launch, Action toggleStar, bool starred)
+        public static List<MI> ForApp(WinDockApp app, AppEntry a, Action launch, Action toggleStar, bool starred)
         {
             string exe = TargetOf(a);
             var items = new List<MI>();
@@ -8537,7 +8533,7 @@ namespace Nook
         }
 
         // Menü für eine laufende App (Gruppe von Fenstern)
-        public static List<MI> ForWindows(NookApp app, List<WinItem> ws, Action after)
+        public static List<MI> ForWindows(WinDockApp app, List<WinItem> ws, Action after)
         {
             var items = new List<MI>();
             if (ws.Count == 0) return items;
@@ -8584,7 +8580,7 @@ namespace Nook
                 {
                     foreach (var pid in pids)
                     {
-                        try { using (var pr = Process.GetProcessById((int)pid)) pr.Kill(); } catch (Exception ex) { NookApp.Log(ex); }
+                        try { using (var pr = Process.GetProcessById((int)pid)) pr.Kill(); } catch (Exception ex) { WinDockApp.Log(ex); }
                     }
                     if (after != null) after();
                 });
@@ -8600,19 +8596,19 @@ namespace Nook
     // -----------------------------------------------------------------
     public class PeekWindow : Window
     {
-        readonly NookApp app;
+        readonly WinDockApp app;
         public string Key;
         readonly StackPanel container = new StackPanel();
         readonly WrapPanel cardsPanel = new WrapPanel();
         readonly List<IntPtr> thumbs = new List<IntPtr>();
         public IntPtr Handle;
 
-        public PeekWindow(NookApp a)
+        public PeekWindow(WinDockApp a)
         {
             app = a;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; ShowActivated = false;
-            SizeToContent = SizeToContent.WidthAndHeight; Title = "Nook Fenster";
+            SizeToContent = SizeToContent.WidthAndHeight; Title = "WinDock Fenster";
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
 
@@ -8727,7 +8723,7 @@ namespace Nook
                 N.SetWindowPos(Handle, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
 
                 // DWM Thumbnails nach Platzierung registrieren
-                double scale = NookApp.Scale();
+                double scale = WinDockApp.Scale();
                 foreach (var pair in pendingThumbs)
                 {
                     IntPtr targetH = pair.Key;
@@ -8781,14 +8777,14 @@ namespace Nook
         public static readonly string[][] All =
         {
             new[] { "#Überall", "" },
-            new[] { "Win", "Nook öffnen / schließen" },
+            new[] { "Win", "WinDock öffnen / schließen" },
             new[] { "Tippen", "Springt direkt zur Suche" },
             new[] { "Esc", "Schließen" },
             new[] { "F1", "Diese Übersicht" },
             new[] { "← →", "Tab wechseln" },
             new[] { "Strg+1 … 6", "Direkt zu Tab" },
             new[] { "Strg+,", "Einstellungen" },
-            new[] { "Menütaste", "Menü zur Auswahl / Nook-Menü" },
+            new[] { "Menütaste", "Menü zur Auswahl / WinDock-Menü" },
             new[] { "#Apps", "" },
             new[] { "Tippen", "Suchen oder rechnen" },
             new[] { "↑ ↓  Enter", "Auswählen, öffnen" },
@@ -8827,7 +8823,7 @@ namespace Nook
         {
             var outer = U.G(new[] { U.Auto, U.Px(12), U.Star(1), U.Px(10), U.Auto }, null);
             var head = U.G(null, new[] { U.Auto, U.Px(12), U.Star(1), U.Auto });
-            var logo = NookApp.Logo(30);
+            var logo = WinDockApp.Logo(30);
             if (logo != null) U.Put(head, new Image { Source = logo, Width = 30, Height = 30 }, 0, 0);
             U.Put(head, U.T(Loc.Tr("Tastenkürzel"), 17, Th.Text, FontWeights.Bold), 0, 2);
             var x = U.IconBtn("", 30, 10, Th.Surface2, Th.Hover, Th.Muted);
@@ -8871,7 +8867,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Lippe: dünner Strich am Bildschirmrand, zeigt wo die Pille wartet
@@ -8879,19 +8875,19 @@ namespace Nook
     // -----------------------------------------------------------------
     public class LipWindow : Window
     {
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Border bar;
         IntPtr handle;
         readonly double Wd = 72, Th_ = 4;
 
-        public LipWindow(NookApp a)
+        public LipWindow(WinDockApp a)
         {
             app = a;
             Wd = Math.Max(24, Math.Min(400, a.Cfg.D("pill.lipWidth", 72)));
             Th_ = Math.Max(2, Math.Min(12, a.Cfg.D("pill.lipThickness", 4)));
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; ShowActivated = false;
-            Width = Wd * Th.K; Height = Th_ * Th.K; Title = "Nook Lippe";
+            Width = Wd * Th.K; Height = Th_ * Th.K; Title = "WinDock Lippe";
             bool top = a.Top;
             bar = new Border
             {
@@ -8929,7 +8925,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Fokussierbare Fläche für Editor-Elemente (Tastatur: Tab, Leertaste, Pfeile)
@@ -8965,7 +8961,7 @@ namespace Nook
         {
             get
             {
-                double h = NookApp.I != null ? NookApp.I.MonitorDip().Height : 1080;
+                double h = WinDockApp.I != null ? WinDockApp.I.MonitorDip().Height : 1080;
                 double extra = h >= 1300 ? 1.15 : 1.0;
                 return Th.K * extra;
             }
@@ -9009,7 +9005,7 @@ namespace Nook
             public List<KeyValuePair<UIElement, string>> Items = new List<KeyValuePair<UIElement, string>>();
         }
 
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Rect fromScreen;
         Dictionary<string, object> draft;
         bool dirty, closing, saved, confirmDiscard, confirmReset;
@@ -9035,7 +9031,7 @@ namespace Nook
         DropShadowEffect shadow;
         IntPtr hwnd;
 
-        public EditorWindow(NookApp a, Rect from)
+        public EditorWindow(WinDockApp a, Rect from)
         {
             app = a; fromScreen = from;
             Current = this;
@@ -9047,7 +9043,7 @@ namespace Nook
             EH = Math.Min(820, mon.Height / k * 0.9);
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize;
-            Width = (EW + 2 * M) * k; Height = (EH + 2 * M) * k; Title = "Nook Einstellungen";
+            Width = (EW + 2 * M) * k; Height = (EH + 2 * M) * k; Title = "WinDock Einstellungen";
             UseLayoutRounding = true; FontFamily = Th.Font;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             double x = mon.Left + (mon.Width - EW * k) / 2;
@@ -9073,9 +9069,9 @@ namespace Nook
             logoImg = new Image { Width = 30, Height = 30 };
             U.Put(head, logoImg, 0, 0);
             var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            title.Children.Add(U.T("Nook", 17, Th.Text, FontWeights.Bold));
+            title.Children.Add(U.T("WinDock", 17, Th.Text, FontWeights.Bold));
             title.Children.Add(U.T(Loc.Tr("  ·  Einstellungen"), 17, Th.Muted, FontWeights.SemiBold));
-            var ver = U.T("   v" + NookApp.Version, 11.5, Th.Muted, FontWeights.SemiBold); ver.Margin = new Thickness(0, 4, 0, 0);
+            var ver = U.T("   v" + WinDockApp.Version, 11.5, Th.Muted, FontWeights.SemiBold); ver.Margin = new Thickness(0, 4, 0, 0);
             title.Children.Add(ver);
             U.Put(head, title, 0, 2);
             status = U.T("", 12.5, Th.Accent, FontWeights.SemiBold);
@@ -9255,7 +9251,7 @@ namespace Nook
             a.Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (saved) a.Reload(); else if (a.Pill != null) a.Pill.HideForPanel(false);
-                NookApp.Trim();
+                WinDockApp.Trim();
             }), DispatcherPriority.Background);
         }
 
@@ -9633,7 +9629,7 @@ namespace Nook
                     items.Add(MI.Item(o[1], v == cur ? "" : null, () => { S(path, v); render(); box.Focus(); }));
                 }
                 var p = box.PointToScreen(new Point(0, box.ActualHeight + 14));
-                double sc = NookApp.Scale();
+                double sc = WinDockApp.Scale();
                 new MenuWindow(app, items, new Point(p.X / sc + 16, p.Y / sc)).Open();
             };
             box.MouseLeftButtonUp += (s, e) => { open(); e.Handled = true; };
@@ -9802,9 +9798,9 @@ namespace Nook
                 Row(Loc.Tr("Größe"), Loc.Tr("Automatisch passt sich an 4K & Co. an"), Choice("theme.scale", () => L(Loc.Tr("auto|Automatisch (") + Math.Round(app.ComputeScale(new Cfg { Root = new Dictionary<string, object>() }) * 100) + " %)",
                     "0.9|90 %", "1|100 %", "1.15|115 %", "1.3|130 %", "1.5|150 %", "1.75|175 %", "2|200 %"), 190)));
             Section("general", "Öffnen",
-                Row(Loc.Tr("Win-Taste öffnet Nook"), Loc.Tr("Win+E, Win+L usw. bleiben"), Toggle("behavior.winKey", null)),
+                Row(Loc.Tr("Win-Taste öffnet WinDock"), Loc.Tr("Win+E, Win+L usw. bleiben"), Toggle("behavior.winKey", null)),
                 Row(Loc.Tr("Tab bei Win-Taste"), null, Choice("behavior.winTab", () => { var l = TabOptions(false); l.Insert(0, new[] { "same", Loc.Tr("Wie Start-Tab") }); return l; }, 190)),
-                Row(Loc.Tr("Zusätzliches Tastenkürzel"), Loc.Tr("öffnet und schließt Nook von überall"), Choice("behavior.hotkey", () => LT("|Keins",
+                Row(Loc.Tr("Zusätzliches Tastenkürzel"), Loc.Tr("öffnet und schließt WinDock von überall"), Choice("behavior.hotkey", () => LT("|Keins",
                     "Ctrl+Space|Strg+Leertaste", "Ctrl+Alt+Space|Strg+Alt+Leertaste", "Ctrl+Shift+Space|Strg+Umschalt+Leertaste", "Alt+Space|Alt+Leertaste",
                     "Ctrl+Alt+N|Strg+Alt+N", "Ctrl+Shift+N|Strg+Umschalt+N", "F12|F12"), 210)),
                 Row(Loc.Tr("Einfach lostippen"), Loc.Tr("Tippen ohne Suchfeld springt zur Suche"), Choice("behavior.typeToSearch", () => LT("apps|Zur App-Suche", "taskbar|Zur Fenster-Suche", "off|Aus"), 190)));
@@ -9986,12 +9982,11 @@ namespace Nook
                 Row(Loc.Tr("Herunterfahren bestätigen"), Loc.Tr("zweimal drücken"), Toggle("power.confirm", null)));
 
             // ===== Info =====
-            var ver = U.T("v" + NookApp.Version + (Program.IsTest ? "  ·  TEST" : ""), 13, Th.Text, FontWeights.SemiBold);
-            Section("info", "Nook",
+            var ver = U.T("v" + WinDockApp.Version + (Program.IsTest ? "  ·  TEST" : ""), 13, Th.Text, FontWeights.SemiBold);
+            Section("info", "WinDock",
                 Row(Loc.Tr("Version"), Program.IsTest ? Loc.Tr("Testversion – läuft neben der stabilen Version, eigene Einstellungen") : Loc.Tr("Stabile Version"), ver),
                 Row(Loc.Tr("Einstellungsdatei"), Loc.Tr("config.json – zum Sichern oder Teilen"), Button(U.T(Loc.Tr("Ordner öffnen"), 13, Th.Text, FontWeights.SemiBold), false, () => app.OpenConfigFolder())),
-                Row(Loc.Tr("Nook unterstützen"), Loc.Tr("Nook ist kostenlos und Open Source. Ein Kaffee hilft, es weiter zu verbessern."), Button(U.T("Ko-fi ♥", 13, Th.AccentText, FontWeights.Bold), true, () => AppIndex.Open(NookApp.SupportUrl))),
-                Row("GitHub", Loc.Tr("Quellcode, Updates und Fehler melden"), Button(U.T(Loc.Tr("Öffnen"), 13, Th.Text, FontWeights.SemiBold), false, () => AppIndex.Open("https://github.com/NixFabo/Nook"))));
+                Row("GitHub", Loc.Tr("Quellcode, Updates und Fehler melden"), Button(U.T(Loc.Tr("Öffnen"), 13, Th.Text, FontWeights.SemiBold), false, () => AppIndex.Open("https://github.com/NixFabo/WinDock"))));
             Section("info", "Tastatur",
                 Note(Loc.Tr("Strg+S speichert  ·  Esc bricht ab  ·  Strg+F sucht  ·  Strg+Bild↑/↓ wechselt den Bereich  ·  Tab springt zum nächsten Feld  ·  Leertaste schaltet  ·  ← → ändert Werte")),
                 Note(Loc.Tr("Im Panel: F1 zeigt alle Tastenkürzel.")));
@@ -10166,10 +10161,10 @@ namespace Nook
             Th.Apply(cfg);
             try
             {
-                logoImg.Source = NookApp.Logo(30, cfg);
+                logoImg.Source = WinDockApp.Logo(30, cfg);
                 pvHost.Child = BuildStage(cfg);
             }
-            catch (Exception ex) { NookApp.Log(ex); }
+            catch (Exception ex) { WinDockApp.Log(ex); }
             finally { Th.Apply(app.Cfg); }
         }
 
@@ -10286,7 +10281,7 @@ namespace Nook
             if (mode == "hidden")
             {
                 var col = new StackPanel();
-                col.Children.Add(caption(Loc.Tr("Pille ausgeblendet – Nook öffnet sich mit der Win-Taste")));
+                col.Children.Add(caption(Loc.Tr("Pille ausgeblendet – WinDock öffnet sich mit der Win-Taste")));
                 return col;
             }
             if (mode == "lip")
@@ -10504,7 +10499,7 @@ namespace Nook
     }
 }
 
-namespace Nook
+namespace WinDock
 {
     // -----------------------------------------------------------------
     //  Audio-Fenster: Ausgabegerät wählen und Lautstärke pro App
@@ -10514,7 +10509,7 @@ namespace Nook
     {
         public static AudioFlyout Current;
 
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Rect anchor;
         readonly StackPanel sp = new StackPanel { MinWidth = 380 };
         readonly List<Border> rows = new List<Border>();
@@ -10527,12 +10522,12 @@ namespace Nook
         Action<IntPtr> fgHandler;
         IntPtr hwnd;
 
-        public AudioFlyout(NookApp a, Rect anchorScreen)
+        public AudioFlyout(WinDockApp a, Rect anchorScreen)
         {
             app = a; anchor = anchorScreen;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
-            Title = "Nook Audio";
+            Title = "WinDock Audio";
             UseLayoutRounding = true; FontFamily = Th.Font;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             Content = new Border
@@ -10554,7 +10549,7 @@ namespace Nook
             Build();
         }
 
-        public static void Toggle(NookApp a, Rect anchorScreen)
+        public static void Toggle(WinDockApp a, Rect anchorScreen)
         {
             if (Current != null) { Current.CloseFlyout(); return; }
             if (MenuWindow.Current != null) MenuWindow.Current.CloseMenu();
@@ -10580,7 +10575,7 @@ namespace Nook
             Focus();
             openedAt = DateTime.Now;
             outside.Start();
-            NookApp.ForegroundChanged += fgHandler;
+            WinDockApp.ForegroundChanged += fgHandler;
             if (rows.Count > 0) SetSel(0);
         }
 
@@ -10589,7 +10584,7 @@ namespace Nook
             if (closing) return;
             closing = true;
             outside.Stop();
-            NookApp.ForegroundChanged -= fgHandler;
+            WinDockApp.ForegroundChanged -= fgHandler;
             if (Current == this) Current = null;
             Close();
             if (app.Panel != null && app.Panel.IsOpen) app.Dispatcher.BeginInvoke(new Action(app.Panel.Refocus), DispatcherPriority.Input);
@@ -10735,7 +10730,7 @@ namespace Nook
     {
         public static WifiFlyout Current;
 
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Rect anchor;
         readonly StackPanel sp = new StackPanel { MinWidth = 340 };
         readonly List<Border> rows = new List<Border>();
@@ -10747,12 +10742,12 @@ namespace Nook
         Action<IntPtr> fgHandler;
         IntPtr hwnd;
 
-        public WifiFlyout(NookApp a, Rect anchorScreen)
+        public WifiFlyout(WinDockApp a, Rect anchorScreen)
         {
             app = a; anchor = anchorScreen;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
-            Title = "Nook Wi-Fi";
+            Title = "WinDock Wi-Fi";
             UseLayoutRounding = true; FontFamily = Th.Font;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             Content = new Border
@@ -10774,7 +10769,7 @@ namespace Nook
             Build();
         }
 
-        public static void Toggle(NookApp a, Rect anchorScreen)
+        public static void Toggle(WinDockApp a, Rect anchorScreen)
         {
             if (Current != null) { Current.CloseFlyout(); return; }
             if (AudioFlyout.Current != null) AudioFlyout.Current.CloseFlyout();
@@ -10802,7 +10797,7 @@ namespace Nook
             Focus();
             openedAt = DateTime.Now;
             outside.Start();
-            NookApp.ForegroundChanged += fgHandler;
+            WinDockApp.ForegroundChanged += fgHandler;
             if (rows.Count > 0) SetSel(0);
         }
 
@@ -10811,7 +10806,7 @@ namespace Nook
             if (closing) return;
             closing = true;
             outside.Stop();
-            NookApp.ForegroundChanged -= fgHandler;
+            WinDockApp.ForegroundChanged -= fgHandler;
             if (Current == this) Current = null;
             Close();
             if (app.Panel != null && app.Panel.IsOpen) app.Dispatcher.BeginInvoke(new Action(app.Panel.Refocus), DispatcherPriority.Input);
@@ -10935,7 +10930,7 @@ namespace Nook
     {
         public static BluetoothFlyout Current;
 
-        readonly NookApp app;
+        readonly WinDockApp app;
         readonly Rect anchor;
         readonly StackPanel sp = new StackPanel { MinWidth = 340 };
         readonly List<Border> rows = new List<Border>();
@@ -10947,12 +10942,12 @@ namespace Nook
         Action<IntPtr> fgHandler;
         IntPtr hwnd;
 
-        public BluetoothFlyout(NookApp a, Rect anchorScreen)
+        public BluetoothFlyout(WinDockApp a, Rect anchorScreen)
         {
             app = a; anchor = anchorScreen;
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
-            Title = "Nook Bluetooth";
+            Title = "WinDock Bluetooth";
             UseLayoutRounding = true; FontFamily = Th.Font;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             Content = new Border
@@ -10974,7 +10969,7 @@ namespace Nook
             Build();
         }
 
-        public static void Toggle(NookApp a, Rect anchorScreen)
+        public static void Toggle(WinDockApp a, Rect anchorScreen)
         {
             if (Current != null) { Current.CloseFlyout(); return; }
             if (AudioFlyout.Current != null) AudioFlyout.Current.CloseFlyout();
@@ -11002,7 +10997,7 @@ namespace Nook
             Focus();
             openedAt = DateTime.Now;
             outside.Start();
-            NookApp.ForegroundChanged += fgHandler;
+            WinDockApp.ForegroundChanged += fgHandler;
             if (rows.Count > 0) SetSel(0);
         }
 
@@ -11011,7 +11006,7 @@ namespace Nook
             if (closing) return;
             closing = true;
             outside.Stop();
-            NookApp.ForegroundChanged -= fgHandler;
+            WinDockApp.ForegroundChanged -= fgHandler;
             if (Current == this) Current = null;
             Close();
             if (app.Panel != null && app.Panel.IsOpen) app.Dispatcher.BeginInvoke(new Action(app.Panel.Refocus), DispatcherPriority.Input);

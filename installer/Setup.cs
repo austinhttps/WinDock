@@ -1,12 +1,12 @@
 // =====================================================================
-//  Nook Setup – installs Nook for the current user, no admin rights.
+//  WinDock Setup – installs WinDock for the current user, no admin rights.
 //
-//  - copies Nook.exe to %LOCALAPPDATA%\Programs\Nook
+//  - copies WinDock.exe to %LOCALAPPDATA%\Programs\WinDock
 //  - Start menu shortcut (and optionally a desktop shortcut)
 //  - optional "Start with Windows" (HKCU Run + behavior.autostart in config.json)
 //  - entry under Settings > Apps, uninstall included
 //
-//  Nook.exe is embedded as a resource. Build: installer\build-installer.bat
+//  WinDock.exe is embedded as a resource. Build: installer\build-installer.bat
 //  or the GitHub Action. C# 5, .NET Framework 4.x, WinForms.
 // =====================================================================
 using System;
@@ -25,21 +25,21 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("Nook Setup")]
-[assembly: AssemblyProduct("Nook")]
-[assembly: AssemblyDescription("Installs Nook for the current user")]
-[assembly: AssemblyCompany("Nook contributors")]
-[assembly: AssemblyCopyright("Copyright (c) 2026 Nook contributors. MIT License.")]
-[assembly: AssemblyInformationalVersion(NookSetup.SetupVersion.Value)]
+[assembly: AssemblyTitle("WinDock Setup")]
+[assembly: AssemblyProduct("WinDock")]
+[assembly: AssemblyDescription("Installs WinDock for the current user")]
+[assembly: AssemblyCompany("WinDock contributors")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 WinDock contributors. MIT License.")]
+[assembly: AssemblyInformationalVersion(WinDockSetup.SetupVersion.Value)]
 
-namespace NookSetup
+namespace WinDockSetup
 {
     static class Program
     {
-        public static readonly string InstallDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Nook");
-        public static readonly string StartMenuLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Nook.lnk");
-        public static readonly string DesktopLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Nook.lnk");
-        public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Nook";
+        public static readonly string InstallDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "WinDock");
+        public static readonly string StartMenuLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "WinDock.lnk");
+        public static readonly string DesktopLnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "WinDock.lnk");
+        public const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\WinDock";
         public const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
         [STAThread]
@@ -64,7 +64,7 @@ namespace NookSetup
             }
             catch (Exception ex)
             {
-                if (!silent) MessageBox.Show(ex.Message, "Nook Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                if (!silent) MessageBox.Show(ex.Message, "WinDock Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 Environment.ExitCode = 1;
             }
         }
@@ -79,14 +79,14 @@ namespace NookSetup
         {
             string dir = Program.InstallDir;
             Directory.CreateDirectory(dir);
-            string exe = Path.Combine(dir, "Nook.exe");
+            string exe = Path.Combine(dir, "WinDock.exe");
 
-            NookProcess.Stop();
+            WinDockProcess.Stop();
 
-            // Nook.exe from the embedded resource
-            using (var src = Assembly.GetExecutingAssembly().GetManifestResourceStream("Nook.exe"))
+            // WinDock.exe from the embedded resource
+            using (var src = Assembly.GetExecutingAssembly().GetManifestResourceStream("WinDock.exe"))
             {
-                if (src == null) throw new Exception("Nook.exe is missing in this setup.");
+                if (src == null) throw new Exception("WinDock.exe is missing in this setup.");
                 CopyWithRetry(src, exe);
             }
             if (File.Exists(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "config.standard.json")))
@@ -95,22 +95,22 @@ namespace NookSetup
             }
 
             // Uninstaller = copy of this setup
-            string uninst = Path.Combine(dir, "Uninstall Nook.exe");
+            string uninst = Path.Combine(dir, "Uninstall WinDock.exe");
             string self = Assembly.GetExecutingAssembly().Location;
             if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(uninst), StringComparison.OrdinalIgnoreCase))
                 File.Copy(self, uninst, true);
 
             // Shortcuts
-            Shortcut.Create(Program.StartMenuLnk, exe, dir, "Nook");
-            if (desktop) Shortcut.Create(Program.DesktopLnk, exe, dir, "Nook");
+            Shortcut.Create(Program.StartMenuLnk, exe, dir, "WinDock");
+            if (desktop) Shortcut.Create(Program.DesktopLnk, exe, dir, "WinDock");
 
-            // Autostart: registry and Nook's own setting stay in sync
+            // Autostart: registry and WinDock's own setting stay in sync
             if (!(keepAutostartIfUnset && !autostart))
             {
                 using (var k = Registry.CurrentUser.CreateSubKey(Program.RunKey))
                 {
-                    if (autostart) k.SetValue("Nook", "\"" + exe + "\"");
-                    else if (k.GetValue("Nook") != null) k.DeleteValue("Nook");
+                    if (autostart) k.SetValue("WinDock", "\"" + exe + "\"");
+                    else if (k.GetValue("WinDock") != null) k.DeleteValue("WinDock");
                 }
                 ConfigFile.SetAutostart(Path.Combine(dir, "config.json"), autostart);
             }
@@ -118,14 +118,14 @@ namespace NookSetup
             // Settings > Apps
             using (var k = Registry.CurrentUser.CreateSubKey(Program.UninstallKey))
             {
-                k.SetValue("DisplayName", "Nook");
+                k.SetValue("DisplayName", "WinDock");
                 k.SetValue("DisplayVersion", SetupVersion.Value);
-                k.SetValue("Publisher", "Nook");
+                k.SetValue("Publisher", "WinDock");
                 k.SetValue("DisplayIcon", exe + ",0");
                 k.SetValue("InstallLocation", dir);
                 k.SetValue("UninstallString", "\"" + uninst + "\" /uninstall");
                 k.SetValue("QuietUninstallString", "\"" + uninst + "\" /uninstall /silent");
-                k.SetValue("URLInfoAbout", "https://github.com/NixFabo/Nook");
+                k.SetValue("URLInfoAbout", "https://github.com/NixFabo/WinDock");
                 k.SetValue("NoModify", 1, RegistryValueKind.DWord);
                 k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
                 k.SetValue("EstimatedSize", (int)(new FileInfo(exe).Length / 1024 + 64), RegistryValueKind.DWord);
@@ -163,7 +163,7 @@ namespace NookSetup
             // Running from inside the install folder: continue from a temp copy so the folder can be removed
             if (Path.GetFullPath(self).StartsWith(Path.GetFullPath(dir), StringComparison.OrdinalIgnoreCase))
             {
-                string tmp = Path.Combine(Path.GetTempPath(), "NookUninstall.exe");
+                string tmp = Path.Combine(Path.GetTempPath(), "WinDockUninstall.exe");
                 File.Copy(self, tmp, true);
                 Process.Start(tmp, "/uninstall /dir:\"" + dir + "\"" + (silent ? " /silent" : ""));
                 return;
@@ -173,20 +173,20 @@ namespace NookSetup
             if (!silent)
             {
                 var r = MessageBox.Show(
-                    "Remove Nook?\n\nYes: also delete your settings and data\nNo: keep settings (config.json, data folder)",
-                    "Nook", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    "Remove WinDock?\n\nYes: also delete your settings and data\nNo: keep settings (config.json, data folder)",
+                    "WinDock", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
                 if (r == DialogResult.Cancel) return;
                 deleteData = r == DialogResult.Yes;
             }
 
-            NookProcess.Stop();
+            WinDockProcess.Stop();
             Thread.Sleep(300);
             TryDel(Program.StartMenuLnk);
             TryDel(Program.DesktopLnk);
             try
             {
                 using (var k = Registry.CurrentUser.OpenSubKey(Program.RunKey, true))
-                    if (k != null && k.GetValue("Nook") != null) k.DeleteValue("Nook");
+                    if (k != null && k.GetValue("WinDock") != null) k.DeleteValue("WinDock");
             }
             catch { }
             try { Registry.CurrentUser.DeleteSubKeyTree(Program.UninstallKey, false); } catch { }
@@ -196,11 +196,11 @@ namespace NookSetup
                 if (deleteData) { try { Directory.Delete(dir, true); } catch { } }
                 else
                 {
-                    foreach (var f in new[] { "Nook.exe", "Uninstall Nook.exe", "config.standard.json" }) TryDel(Path.Combine(dir, f));
+                    foreach (var f in new[] { "WinDock.exe", "Uninstall WinDock.exe", "config.standard.json" }) TryDel(Path.Combine(dir, f));
                 }
             }
             if (!silent)
-                MessageBox.Show("Nook has been removed.", "Nook", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("WinDock has been removed.", "WinDock", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
             // remove this temp copy shortly after exit
             try
@@ -214,8 +214,8 @@ namespace NookSetup
         static void TryDel(string f) { try { if (File.Exists(f)) File.Delete(f); } catch { } }
     }
 
-    // Quits a running Nook cleanly (it restores the Windows taskbar on quit)
-    static class NookProcess
+    // Quits a running WinDock cleanly (it restores the Windows taskbar on quit)
+    static class WinDockProcess
     {
         public static void Stop()
         {
@@ -224,17 +224,17 @@ namespace NookSetup
                 try
                 {
                     EventWaitHandle ev;
-                    if (EventWaitHandle.TryOpenExisting("Nook_Quit_v1" + ch, out ev)) { ev.Set(); ev.Dispose(); }
+                    if (EventWaitHandle.TryOpenExisting("WinDock_Quit_v1" + ch, out ev)) { ev.Set(); ev.Dispose(); }
                 }
                 catch { }
             }
             var until = DateTime.Now.AddSeconds(6);
             while (DateTime.Now < until)
             {
-                if (Process.GetProcessesByName("Nook").Length == 0) return;
+                if (Process.GetProcessesByName("WinDock").Length == 0) return;
                 Thread.Sleep(150);
             }
-            foreach (var p in Process.GetProcessesByName("Nook"))
+            foreach (var p in Process.GetProcessesByName("WinDock"))
             {
                 try
                 {
@@ -246,7 +246,7 @@ namespace NookSetup
         }
     }
 
-    // Writes behavior.autostart into Nook's config.json (creates a minimal one if missing)
+    // Writes behavior.autostart into WinDock's config.json (creates a minimal one if missing)
     static class ConfigFile
     {
         public static void SetAutostart(string path, bool on)
@@ -342,9 +342,9 @@ namespace NookSetup
         public SetupForm()
         {
             using (var g = CreateGraphics()) k = g.DpiX / 96f;
-            bool installed = File.Exists(Path.Combine(Program.InstallDir, "Nook.exe"));
+            bool installed = File.Exists(Path.Combine(Program.InstallDir, "WinDock.exe"));
 
-            Text = "Nook Setup";
+            Text = "WinDock Setup";
             AutoScaleMode = AutoScaleMode.None;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false; MinimizeBox = false;
@@ -361,13 +361,13 @@ namespace NookSetup
             var logo = Logo(P(44));
             if (logo != null) head.Controls.Add(new PictureBox { Image = logo, Size = new Size(P(44), P(44)), SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0, P(2), P(14), 0) });
             var titles = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
-            titles.Controls.Add(new Label { Text = "Nook", Font = new Font("Segoe UI Semibold", 17f), AutoSize = true, ForeColor = Fg, Margin = new Padding(0) });
+            titles.Controls.Add(new Label { Text = "WinDock", Font = new Font("Segoe UI Semibold", 17f), AutoSize = true, ForeColor = Fg, Margin = new Padding(0) });
             titles.Controls.Add(new Label { Text = "Version " + SetupVersion.Value, Font = new Font("Segoe UI", 9f), AutoSize = true, ForeColor = Accent, Margin = new Padding(P(2), 0, 0, 0) });
             head.Controls.Add(titles);
             col.Controls.Add(head);
 
             col.Controls.Add(Text_(installed
-                ? "Nook is already installed. Setup will update it, your settings stay."
+                ? "WinDock is already installed. Setup will update it, your settings stay."
                 : "A minimal taskbar replacement for Windows 11. Installed for your user only, no administrator rights needed.",
                 Muted, 10f, textW, P(18)));
 
@@ -378,14 +378,14 @@ namespace NookSetup
                 BackColor = Surface, Padding = new Padding(P(18), P(14), P(18), P(8)), Margin = new Padding(0, 0, 0, P(12)),
                 MinimumSize = new Size(textW, 0)
             };
-            cbAuto = Check("Start Nook with Windows", true);
+            cbAuto = Check("Start WinDock with Windows", true);
             cbDesktop = Check("Create a desktop shortcut", false);
-            cbLaunch = Check("Start Nook when setup is done", true);
+            cbLaunch = Check("Start WinDock when setup is done", true);
             card.Controls.Add(cbAuto); card.Controls.Add(cbDesktop); card.Controls.Add(cbLaunch);
             col.Controls.Add(card);
 
             col.Controls.Add(Text_("Installs to " + Program.InstallDir + ". A Start menu shortcut is always created. " +
-                "While Nook runs it hides the Windows taskbar; quitting Nook brings it back (you can turn this off in Nook's settings).", Muted, 8.5f, textW, P(22)));
+                "While WinDock runs it hides the Windows taskbar; quitting WinDock brings it back (you can turn this off in WinDock's settings).", Muted, 8.5f, textW, P(22)));
 
             // Bottom row: status left, buttons right
             var bottom = new TableLayoutPanel { ColumnCount = 3, RowCount = 1, AutoSize = true, MinimumSize = new Size(textW, 0), Margin = new Padding(0) };
@@ -422,7 +422,7 @@ namespace NookSetup
         static extern uint PrivateExtractIcons(string file, int index, int cx, int cy, IntPtr[] icons, int[] ids, uint count, uint flags);
         [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
 
-        // Logo in the requested size, taken from this exe's own icon (nook.ico)
+        // Logo in the requested size, taken from this exe's own icon (windock.ico)
         static Image Logo(int size)
         {
             try
@@ -464,14 +464,14 @@ namespace NookSetup
                 Installer.Install(cbAuto.Checked, cbDesktop.Checked, false, cbLaunch.Checked);
                 status.Text = "Done.";
                 MessageBox.Show(this,
-                    "Nook is installed.\n\nYou'll find it in the Start menu. Remove it any time under Settings > Apps.",
-                    "Nook", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    "WinDock is installed.\n\nYou'll find it in the Start menu. Remove it any time under Settings > Apps.",
+                    "WinDock", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Close();
             }
             catch (Exception ex)
             {
                 status.Text = "";
-                MessageBox.Show(this, "Setup failed:\n" + ex.Message, "Nook Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "Setup failed:\n" + ex.Message, "WinDock Setup", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 btnInstall.Enabled = btnCancel.Enabled = true;
             }
         }
