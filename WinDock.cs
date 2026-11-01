@@ -180,7 +180,7 @@ namespace WinDock
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""notifications"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
-  ""controls"": { ""showSearch"": true, ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
+  ""controls"": { ""showSearch"": true, ""tiles"": [ ""wifi"", ""bluetooth"", ""volume"", ""brightness"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": false, ""showVolume"": false, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""F"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
@@ -6413,6 +6413,11 @@ namespace WinDock
             chev.Foreground = on ? Th.AccentText : Th.Muted;
             sep.Background = on ? DarkTint : Th.Faint;
         }
+
+        public void SetIcon(string glyph)
+        {
+            if (ic != null) ic.Text = glyph;
+        }
     }
 
     // Fortschrittsbalken zum Spulen
@@ -6607,7 +6612,7 @@ namespace WinDock
         public override string Id { get { return "controls"; } }
         public override string Title { get { return Loc.Tr("Steuerung"); } }
 
-        readonly Tile wifi, bt, audio, night, dark, mic, awake, cast, batterySaver, dnd;
+        readonly Tile wifi, bt, audio, volume, brightness, night, dark, mic, awake, cast, batterySaver, dnd;
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
@@ -6632,12 +6637,14 @@ namespace WinDock
         public ControlsTab(WinDockApp app) : base(app)
         {
             CoverDefault = MakeCoverBrush();
-            wifi = new Tile("\uE701", "WLAN", true);
+            wifi = new Tile("\uE701", "Wi-Fi", true);
             bt = new Tile("\uE702", "Bluetooth", true);
             audio = new Tile("\uE767", "Audio", true);
+            volume = new Tile("\uE767", "Volume", true);
+            brightness = new Tile("\uE706", "Brightness", false);
             night = new Tile("\uE708", Loc.Tr("Nachtmodus"), false);
             dark = new Tile("\uE793", Loc.Tr("Dunkler Modus"), false);
-            mic = new Tile("\uE720", "Mikrofon", false);
+            mic = new Tile("\uE720", Loc.Tr("Mikrofon"), false);
             awake = new Tile("\uE7B3", Loc.Tr("Wach bleiben"), false);
             awake.Click += ToggleAwake;
             cast = new Tile("\uEC15", Loc.Tr("Übertragen"), true);
@@ -6650,6 +6657,21 @@ namespace WinDock
             wifi.Click += OpenWifi;
             bt.Click += OpenBluetooth;
             audio.Click += OpenAudio;
+            volume.Click += ToggleVolumeMute;
+            volume.MouseRightButtonUp += (s, e) => { OpenAudio(); e.Handled = true; };
+            volume.PreviewMouseWheel += (s, e) =>
+            {
+                double cur = Audio.Get();
+                if (cur >= 0) { Audio.Set(Math.Max(0.0, Math.Min(1.0, cur + (e.Delta > 0 ? 0.05 : -0.05)))); RefreshVolume(); }
+                e.Handled = true;
+            };
+            brightness.Click += CycleBrightness;
+            brightness.PreviewMouseWheel += (s, e) =>
+            {
+                int cur = BrightnessControl.Get();
+                if (cur >= 0) { BrightnessControl.Set(Math.Max(0, Math.Min(100, cur + (e.Delta > 0 ? 5 : -5)))); RefreshBrightness(); }
+                e.Handled = true;
+            };
             night.Click += ToggleNight;
             dark.Click += ToggleDark;
             mic.Click += ToggleMic;
@@ -6658,6 +6680,8 @@ namespace WinDock
                 { "wifi", new KeyValuePair<Tile, Action>(wifi, OpenWifi) },
                 { "bluetooth", new KeyValuePair<Tile, Action>(bt, OpenBluetooth) },
                 { "audio", new KeyValuePair<Tile, Action>(audio, OpenAudio) },
+                { "volume", new KeyValuePair<Tile, Action>(volume, ToggleVolumeMute) },
+                { "brightness", new KeyValuePair<Tile, Action>(brightness, CycleBrightness) },
                 { "night", new KeyValuePair<Tile, Action>(night, ToggleNight) },
                 { "dark", new KeyValuePair<Tile, Action>(dark, ToggleDark) },
                 { "mic", new KeyValuePair<Tile, Action>(mic, ToggleMic) },
@@ -7008,7 +7032,21 @@ namespace WinDock
 
         public override void Tick()
         {
-            if (!vol.Dragging) RefreshVolume();
+            if (vol != null && !vol.Dragging) RefreshVolume();
+        }
+
+        void ToggleVolumeMute()
+        {
+            Audio.ToggleMute();
+            RefreshVolume();
+        }
+
+        void CycleBrightness()
+        {
+            int b = BrightnessControl.Get();
+            int next = b < 25 ? 25 : b < 50 ? 50 : b < 75 ? 75 : b < 100 ? 100 : 25;
+            BrightnessControl.Set(next);
+            RefreshBrightness();
         }
 
         void RefreshBrightness()
@@ -7018,7 +7056,8 @@ namespace WinDock
                 int b = BrightnessControl.Get();
                 App.Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (!bright.Dragging) bright.Value = Math.Max(0.0, Math.Min(1.0, b / 100.0));
+                    if (bright != null && !bright.Dragging) bright.Value = Math.Max(0.0, Math.Min(1.0, b / 100.0));
+                    if (brightness != null) brightness.Set(b > 0, b >= 0 ? (b + "%") : "--");
                 }));
             });
         }
@@ -7027,8 +7066,21 @@ namespace WinDock
         {
             double v = Audio.Get();
             bool m = Audio.Muted();
-            if (v >= 0) vol.Value = v;
-            vol.SetIcon(Audio.Glyph(v, m));
+            if (vol != null)
+            {
+                if (v >= 0) vol.Value = v;
+                vol.SetIcon(Audio.Glyph(v, m));
+            }
+            int pct = (int)Math.Round(v * 100);
+            if (volume != null)
+            {
+                volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                volume.SetIcon(Audio.Glyph(v, m));
+            }
+            if (audio != null)
+            {
+                audio.Set(true, Audio.DeviceName());
+            }
         }
 
         Border BuildSessionCard(MediaInfo mi)
@@ -10633,7 +10685,8 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "wifi", Loc.Tr("WLAN"), "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
+                new[] { "wifi", "Wi-Fi", "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
+                new[] { "volume", "Volume", "\uE767" }, new[] { "brightness", "Brightness", "\uE706" },
                 new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }, new[] { "dnd", Loc.Tr("Nicht stören"), "\uE708" }
             };
         }
@@ -11229,8 +11282,9 @@ namespace WinDock
                 var ids = c.L("controls.tiles").Select(x => Convert.ToString(x)).Where(x => all.Any(a => a[0] == x)).Distinct().ToList();
                 var subs = new Dictionary<string, string[]>
                 {
-                    { "wifi", new[] { "1", Loc.Tr("Zuhause 5G") } }, { "bluetooth", new[] { "0", Loc.Tr("Einstellungen") } }, { "audio", new[] { "1", Loc.Tr("Lautsprecher") } },
-                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }, { "batterysaver", new[] { "0", Loc.Tr("Aus") } }, { "dnd", new[] { "0", Loc.Tr("Aus") } }
+                    { "wifi", new[] { "1", "Home 5G" } }, { "bluetooth", new[] { "0", "Settings" } }, { "audio", new[] { "1", "Speakers" } },
+                    { "volume", new[] { "1", "65%" } }, { "brightness", new[] { "1", "80%" } },
+                    { "night", new[] { "0", "Settings" } }, { "dark", new[] { "1", "On" } }, { "mic", new[] { "0", "On" } }, { "awake", new[] { "0", "Off" } }, { "cast", new[] { "0", "Connect" } }, { "batterysaver", new[] { "0", "Off" } }, { "dnd", new[] { "0", "Off" } }
                 };
                 var rowsDef = new List<GridLength>();
                 bool showSearch = c.B("controls.showSearch", true);

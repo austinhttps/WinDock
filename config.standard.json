@@ -100,12 +100,18 @@
     "tiles": [
       "wifi",
       "bluetooth",
-      "audio",
+      "volume",
+      "brightness",
       "night",
       "dark",
-      "mic"
+      "mic",
+      "awake",
+      "cast",
+      "batterysaver",
+      "dnd"
     ],
-    "showVolume": true,
+    "showBrightness": false,
+    "showVolume": false,
     "showMedia": true
   },
   "today": {
