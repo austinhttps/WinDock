@@ -170,7 +170,7 @@ namespace WinDock
               ""clickTab"": ""start"", ""wheel"": ""volume"", ""middleClick"": ""close"",
               ""lipWidth"": 72, ""lipThickness"": 4, ""lipHideMs"": 650,
               ""reserveSpace"": false, ""hideInFullscreen"": true },
-  ""panel"": { ""width"": 780, ""height"": 470, ""radius"": 24, ""borderWidth"": 0, ""shadow"": true, ""shadowStrength"": 0.45,
+  ""panel"": { ""width"": 640, ""height"": 520, ""radius"": 24, ""borderWidth"": 0, ""shadow"": true, ""shadowStrength"": 0.45,
               ""animStyle"": ""morph"", ""animationMs"": 240, ""closeOnBlur"": true, ""startTab"": ""last"",
               ""tabStyle"": ""pill"", ""tabIcons"": ""text"", ""tabAlign"": ""center"",
               ""showClock"": true, ""showHelpButton"": true, ""showMenuButton"": true, ""showTaskbar"": true },
@@ -1213,19 +1213,20 @@ namespace WinDock
             };
             g.Children.Add(fill);
 
-            var contentGrid = U.G(null, new[] { U.Px(38), U.Star(1), U.Auto });
-            contentGrid.Margin = new Thickness(10, 0, 16, 0);
+            double badge = Math.Max(26, h - 10);
+            var contentGrid = U.G(null, new[] { U.Px(badge + 2), U.Star(1), U.Auto });
+            contentGrid.Margin = new Thickness(8, 0, 14, 0);
 
             icBg = new Border
             {
-                Width = 36, Height = 36,
-                CornerRadius = new CornerRadius(18),
+                Width = badge, Height = badge,
+                CornerRadius = new CornerRadius(badge / 2),
                 Background = Th.Surface2,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 Cursor = Cursors.Hand
             };
-            Icon = U.I("\uE767", 15, Th.Text);
+            Icon = U.I("\uE767", Math.Round(badge * 0.44), Th.Text);
             Icon.HorizontalAlignment = HorizontalAlignment.Center;
             Icon.VerticalAlignment = VerticalAlignment.Center;
             icBg.Child = Icon;
@@ -1235,7 +1236,7 @@ namespace WinDock
             };
             U.Put(contentGrid, icBg, 0, 0);
 
-            pct = U.T("0 %", 13.5, Th.Text, FontWeights.SemiBold);
+            pct = U.T("0 %", 12.5, Th.Text, FontWeights.SemiBold);
             pct.VerticalAlignment = VerticalAlignment.Center;
             U.Put(contentGrid, pct, 0, 2);
 
@@ -5761,9 +5762,9 @@ namespace WinDock
             var c = a.Cfg;
             var mon = a.MonitorDip();
             double k = Th.K;
-            W = Math.Min(Math.Max(520, c.D("panel.width", 780)), mon.Width / k - 2 * c.D("position.sideMargin", 16));
+            W = Math.Min(Math.Max(480, c.D("panel.width", 640)), mon.Width / k - 2 * c.D("position.sideMargin", 16));
             double maxAllowedH = Math.Max(360, mon.Height / k - 60);
-            H = Math.Min(maxAllowedH, Math.Max(560, c.D("panel.height", 620)));
+            H = Math.Min(maxAllowedH, Math.Max(440, c.D("panel.height", 520)));
 
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; ShowActivated = true;
@@ -6318,22 +6319,22 @@ namespace WinDock
         readonly Border icBg, sep;
         static readonly SolidColorBrush DarkTint = Th.B(Color.FromArgb(38, 0, 0, 0));
 
-        public Tile(string glyph, string t, bool chevron) : base(null, Th.CardBg, Th.Hover, Th.CardR + 2, new Thickness(12, 0, 12, 0))
+        public Tile(string glyph, string t, bool chevron) : base(null, Th.CardBg, Th.Hover, Th.CardR + 2, new Thickness(10, 0, 10, 0))
         {
             BorderBrush = Th.CardBorder; BorderThickness = new Thickness(Th.CardBorderW);
-            var g = U.G(null, new[] { U.Px(38), U.Star(1), U.Auto });
-            icBg = new Border { Width = 38, Height = 38, CornerRadius = new CornerRadius(19), Background = Th.Surface2 };
-            ic = U.I(glyph, 15, Th.Text);
+            var g = U.G(null, new[] { U.Px(32), U.Star(1), U.Auto });
+            icBg = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = Th.Surface2 };
+            ic = U.I(glyph, 13.5, Th.Text);
             icBg.Child = ic;
             U.Put(g, icBg, 0, 0);
             var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-            title = U.T(t, 14, Th.Text, FontWeights.SemiBold); title.HorizontalAlignment = HorizontalAlignment.Center;
-            sub = U.T("", 12, Th.Muted); sub.HorizontalAlignment = HorizontalAlignment.Center; sub.Margin = new Thickness(0, 1, 0, 0);
+            title = U.T(t, 12.5, Th.Text, FontWeights.SemiBold); title.HorizontalAlignment = HorizontalAlignment.Center;
+            sub = U.T("", 11, Th.Muted); sub.HorizontalAlignment = HorizontalAlignment.Center; sub.Margin = new Thickness(0, 1, 0, 0);
             sp.Children.Add(title); sp.Children.Add(sub);
             U.Put(g, sp, 0, 1);
             var right = new StackPanel { Orientation = Orientation.Horizontal, Visibility = chevron ? Visibility.Visible : Visibility.Collapsed };
-            sep = new Border { Width = 1, Height = 26, Background = Th.Faint };
-            chev = U.I("", 10, Th.Muted); chev.Margin = new Thickness(12, 0, 4, 0);
+            sep = new Border { Width = 1, Height = 20, Background = Th.Faint };
+            chev = U.I("", 9, Th.Muted); chev.Margin = new Thickness(8, 0, 2, 0);
             right.Children.Add(sep); right.Children.Add(chev);
             U.Put(g, right, 0, 2);
             Child = g;
@@ -6585,6 +6586,7 @@ namespace WinDock
             batterySaver.Click += ToggleBatterySaver;
             dnd = new Tile("\uE708", Loc.Tr("Nicht stören"), false);
             dnd.Click += ToggleDnd;
+            RefreshDnd();
             wifi.Click += OpenWifi;
             bt.Click += OpenBluetooth;
             audio.Click += OpenAudio;
@@ -6609,22 +6611,22 @@ namespace WinDock
             var acts = new List<Action>();
             var rowsDef = new List<GridLength>();
             bool showSearch = app.Cfg.B("controls.showSearch", true);
-            if (showSearch) { rowsDef.Add(U.Px(46)); rowsDef.Add(U.Px(12)); }
+            if (showSearch) { rowsDef.Add(U.Px(40)); rowsDef.Add(U.Px(8)); }
             int tileStartRow = rowsDef.Count;
             int tileRows = (ids.Count + 2) / 3;
-            for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(62)); rowsDef.Add(U.Px(10)); }
+            for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(8)); }
             bool showBright = app.Cfg.B("controls.showBrightness", true);
             bool showVol = app.Cfg.B("controls.showVolume", true), showMedia = app.Cfg.B("controls.showMedia", true);
             int brightRow = rowsDef.Count;
-            if (showBright) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(10)); }
+            if (showBright) { rowsDef.Add(U.Px(40)); rowsDef.Add(U.Px(8)); }
             int volRow = rowsDef.Count;
-            if (showVol) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(12)); }
+            if (showVol) { rowsDef.Add(U.Px(40)); rowsDef.Add(U.Px(10)); }
             int mediaRow = rowsDef.Count;
             rowsDef.Add(U.Star(1));
             var g = U.G(rowsDef.ToArray(), null);
             for (int r = 0; r < tileRows; r++)
             {
-                var rg = U.G(null, new[] { U.Star(1), U.Px(10), U.Star(1), U.Px(10), U.Star(1) });
+                var rg = U.G(null, new[] { U.Star(1), U.Px(8), U.Star(1), U.Px(8), U.Star(1) });
                 for (int cIdx = 0; cIdx < 3; cIdx++)
                 {
                     int i = r * 3 + cIdx;
@@ -6639,7 +6641,7 @@ namespace WinDock
 
             if (showSearch)
             {
-                search = new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 14.5, true) { Height = 46 };
+                search = new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 13.5, true) { Height = 40 };
                 search.Tb.TextChanged += (s, e) =>
                 {
                     if (search.Tb.Text.Length > 0 && !suppressSearch)
@@ -6656,12 +6658,12 @@ namespace WinDock
                 U.Put(g, search, 0, 0);
             }
 
-            bright = new FillSlider(48);
+            bright = new FillSlider(40);
             bright.SetIcon("\uE706");
             bright.Changed += v => BrightnessControl.Set((int)Math.Round(v * 100));
             if (showBright) U.Put(g, bright, brightRow, 0);
 
-            vol = new FillSlider(48);
+            vol = new FillSlider(40);
             vol.Changed += v => { Audio.Set(v); vol.SetIcon(Audio.Glyph(v, false)); };
             vol.IconClick += () => { Audio.ToggleMute(); RefreshVolume(); };
             if (showVol) U.Put(g, vol, volRow, 0);
@@ -6923,6 +6925,7 @@ namespace WinDock
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
             cast.Set(false, Loc.Tr("Verbinden"));
             RefreshBatterySaver();
+            RefreshDnd();
             bool d = IsDark();
             dark.Set(d, d ? Loc.Tr("An") : Loc.Tr("Aus"));
             RefreshNight();
@@ -11176,22 +11179,22 @@ namespace WinDock
                 };
                 var rowsDef = new List<GridLength>();
                 bool showSearch = c.B("controls.showSearch", true);
-                if (showSearch) { rowsDef.Add(U.Px(46)); rowsDef.Add(U.Px(12)); }
+                if (showSearch) { rowsDef.Add(U.Px(40)); rowsDef.Add(U.Px(8)); }
                 int tileStartRow = rowsDef.Count;
                 int tileRows = (ids.Count + 2) / 3;
-                for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(62)); rowsDef.Add(U.Px(10)); }
+                for (int i = 0; i < tileRows; i++) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(8)); }
                 bool showBright = c.B("controls.showBrightness", true);
                 bool showVol = c.B("controls.showVolume", true), showMedia = c.B("controls.showMedia", true);
                 int brightRow = rowsDef.Count;
-                if (showBright) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(10)); }
+                if (showBright) { rowsDef.Add(U.Px(40)); rowsDef.Add(U.Px(8)); }
                 int volRow = rowsDef.Count;
-                if (showVol) { rowsDef.Add(U.Px(48)); rowsDef.Add(U.Px(12)); }
+                if (showVol) { rowsDef.Add(U.Px(40)); rowsDef.Add(U.Px(10)); }
                 int mediaRow = rowsDef.Count;
                 rowsDef.Add(U.Star(1));
                 var g = U.G(rowsDef.ToArray(), null);
                 for (int r = 0; r < tileRows; r++)
                 {
-                    var rg = U.G(null, new[] { U.Star(1), U.Px(10), U.Star(1), U.Px(10), U.Star(1) });
+                    var rg = U.G(null, new[] { U.Star(1), U.Px(8), U.Star(1), U.Px(8), U.Star(1) });
                     for (int ci = 0; ci < 3; ci++)
                     {
                         int i = r * 3 + ci;
@@ -11203,10 +11206,10 @@ namespace WinDock
                     }
                     U.Put(g, rg, tileStartRow + r * 2, 0);
                 }
-                var bSl = new FillSlider(48) { Value = 0.8 }; bSl.SetIcon("\uE706");
-                if (showSearch) U.Put(g, new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 14.5, true) { Height = 46 }, 0, 0);
+                var bSl = new FillSlider(40) { Value = 0.8 }; bSl.SetIcon("\uE706");
+                if (showSearch) U.Put(g, new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 13.5, true) { Height = 40 }, 0, 0);
                 if (showBright) U.Put(g, bSl, brightRow, 0);
-                if (showVol) U.Put(g, new FillSlider(48) { Value = 0.62 }, volRow, 0);
+                if (showVol) U.Put(g, new FillSlider(40) { Value = 0.62 }, volRow, 0);
                 if (showMedia)
                 {
                     var mg = U.G(null, new[] { U.Px(72), U.Px(16), U.Star(1), U.Auto });
