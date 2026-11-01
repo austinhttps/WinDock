@@ -1240,9 +1240,93 @@ namespace WinDock
     }
 
     // Großer Regler wie im Vorbild (Füllbalken mit Prozent)
+    // -----------------------------------------------------------------
+    //  Nachtmodus / Night Light Steuerung
+    // -----------------------------------------------------------------
+    public static class NightLightControl
+    {
+        static bool isNight;
+        [DllImport("gdi32.dll")] public static extern bool GetDeviceGammaRamp(IntPtr hDC, byte[] lpRamp);
+        [DllImport("gdi32.dll")] public static extern bool SetDeviceGammaRamp(IntPtr hDC, byte[] lpRamp);
+
+        public static bool IsOn() { return isNight; }
+
+        public static void Toggle()
+        {
+            SetNight(!isNight);
+        }
+
+        public static void SetNight(bool on)
+        {
+            isNight = on;
+            try
+            {
+                IntPtr hdc = N.GetDC(IntPtr.Zero);
+                if (hdc != IntPtr.Zero)
+                {
+                    byte[] ramp = new byte[3 * 256 * 2];
+                    for (int i = 0; i < 256; i++)
+                    {
+                        ushort r = (ushort)(i * 256 + i);
+                        ushort g = (ushort)(on ? (i * 215) : (i * 256 + i));
+                        ushort b = (ushort)(on ? (i * 160) : (i * 256 + i));
+                        ramp[i * 2] = (byte)(r & 0xFF); ramp[i * 2 + 1] = (byte)(r >> 8);
+                        ramp[512 + i * 2] = (byte)(g & 0xFF); ramp[512 + i * 2 + 1] = (byte)(g >> 8);
+                        ramp[1024 + i * 2] = (byte)(b & 0xFF); ramp[1024 + i * 2 + 1] = (byte)(b >> 8);
+                    }
+                    SetDeviceGammaRamp(hdc, ramp);
+                    N.ReleaseDC(IntPtr.Zero, hdc);
+                }
+            }
+            catch { }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    string baseKey = @"Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current";
+                    using (var root = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(baseKey, true))
+                    {
+                        if (root != null)
+                        {
+                            foreach (var sub in root.GetSubKeyNames())
+                            {
+                                if (sub.IndexOf("bluelightreductionstate", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    using (var sk = root.OpenSubKey(sub, true))
+                                    {
+                                        if (sk != null)
+                                        {
+                                            foreach (var sskName in sk.GetSubKeyNames())
+                                            {
+                                                using (var ssk = sk.OpenSubKey(sskName, true))
+                                                {
+                                                    if (ssk != null)
+                                                    {
+                                                        byte[] d = ssk.GetValue("Data") as byte[];
+                                                        if (d != null && d.Length > 18)
+                                                        {
+                                                            d[18] = on ? (byte)0x15 : (byte)0x13;
+                                                            ssk.SetValue("Data", d, Microsoft.Win32.RegistryValueKind.Binary);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            });
+        }
+    }
+
     public class FillSlider : Border
     {
-        readonly Border fill;
+        readonly Border fill, icBg;
         readonly TextBlock pct;
         public readonly TextBlock Icon;
         double v;
@@ -1252,21 +1336,59 @@ namespace WinDock
 
         public FillSlider(double h)
         {
-            Height = h; CornerRadius = new CornerRadius(h / 2); Cursor = Cursors.Hand;
-            Background = Th.CardBg; BorderBrush = Th.CardBorder; BorderThickness = new Thickness(Th.CardBorderW);
-            fill = new Border { Background = Th.Accent, CornerRadius = new CornerRadius(h / 2), HorizontalAlignment = HorizontalAlignment.Left, Width = h };
-            Icon = U.I("", 15, Th.AccentText);
-            Icon.HorizontalAlignment = HorizontalAlignment.Left; Icon.Margin = new Thickness(h * 0.38, 0, 0, 0);
-            pct = U.T("0 %", 13, Th.Text, FontWeights.SemiBold);
-            pct.HorizontalAlignment = HorizontalAlignment.Right; pct.Margin = new Thickness(0, 0, 20, 0);
-            var g = new Grid();
-            g.Children.Add(fill); g.Children.Add(Icon); g.Children.Add(pct);
+            Height = h;
+            CornerRadius = new CornerRadius(Th.CardR);
+            Cursor = Cursors.Hand;
+            Background = Th.CardBg;
+            BorderBrush = Th.CardBorder;
+            BorderThickness = new Thickness(Th.CardBorderW);
+
+            var g = new Grid { ClipToBounds = true };
+
+            fill = new Border
+            {
+                Background = Th.Accent,
+                Opacity = 0.28,
+                CornerRadius = new CornerRadius(Th.CardR),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Width = 0
+            };
+            g.Children.Add(fill);
+
+            var contentGrid = U.G(null, new[] { U.Px(38), U.Star(1), U.Auto });
+            contentGrid.Margin = new Thickness(10, 0, 16, 0);
+
+            icBg = new Border
+            {
+                Width = 36, Height = 36,
+                CornerRadius = new CornerRadius(18),
+                Background = Th.Surface2,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand
+            };
+            Icon = U.I("\uE767", 15, Th.Text);
+            Icon.HorizontalAlignment = HorizontalAlignment.Center;
+            Icon.VerticalAlignment = VerticalAlignment.Center;
+            icBg.Child = Icon;
+            icBg.MouseLeftButtonDown += (s, e) =>
+            {
+                if (IconClick != null) { IconClick(); e.Handled = true; }
+            };
+            U.Put(contentGrid, icBg, 0, 0);
+
+            pct = U.T("0 %", 13.5, Th.Text, FontWeights.SemiBold);
+            pct.VerticalAlignment = VerticalAlignment.Center;
+            U.Put(contentGrid, pct, 0, 2);
+
+            g.Children.Add(contentGrid);
             Child = g;
+
             SizeChanged += (s, e) => Update();
             MouseLeftButtonDown += (s, e) =>
             {
                 var x = e.GetPosition(this).X;
-                if (x < h && IconClick != null) { IconClick(); e.Handled = true; return; }
+                if (x < 50 && IconClick != null) { IconClick(); e.Handled = true; return; }
                 Dragging = true; CaptureMouse(); SetFromX(x); e.Handled = true;
             };
             MouseMove += (s, e) => { if (Dragging) SetFromX(e.GetPosition(this).X); };
@@ -1276,8 +1398,7 @@ namespace WinDock
 
         void SetFromX(double x)
         {
-            double h = Height;
-            Value = (x - h / 2) / Math.Max(1, ActualWidth - h);
+            Value = x / Math.Max(1, ActualWidth);
             if (Changed != null) Changed(v);
         }
 
@@ -1291,8 +1412,7 @@ namespace WinDock
 
         void Update()
         {
-            double h = Height;
-            fill.Width = h + Math.Max(0, ActualWidth - h) * v;
+            fill.Width = Math.Max(0, ActualWidth * v);
             pct.Text = Math.Round(v * 100) + " %";
         }
     }
@@ -2442,18 +2562,25 @@ namespace WinDock
         public ImageSource Cover;
         public double Pos = -1, Dur = -1;
         public bool CanSeek;
+        public object Tag;
         public bool Has { get { return !string.IsNullOrEmpty(Title); } }
     }
 
     public abstract class MediaSvc
     {
         public volatile MediaInfo Info = new MediaInfo();
+        public volatile List<MediaInfo> AllSessions = new List<MediaInfo>();
+        public virtual List<MediaInfo> Sessions { get { return AllSessions.Count > 0 ? AllSessions : new List<MediaInfo> { Info }; } }
         public abstract void Poll();
         public abstract void Toggle();
         public abstract void Next();
         public abstract void Prev();
         public virtual bool Rich { get { return false; } }
         public virtual void Seek(double seconds) { }
+        public virtual void ToggleSession(MediaInfo mi) { Toggle(); }
+        public virtual void NextSession(MediaInfo mi) { Next(); }
+        public virtual void PrevSession(MediaInfo mi) { Prev(); }
+        public virtual void SeekSession(MediaInfo mi, double pos) { Seek(pos); }
 
         public static MediaSvc Create()
         {
@@ -2595,7 +2722,79 @@ namespace WinDock
                 if (props.Thumbnail != null) { try { lastCover = LoadThumb(props.Thumbnail); } catch { } }
             }
             mi.Cover = lastCover;
+            mi.Tag = s;
             Info = mi;
+
+            try
+            {
+                var all = mgr.GetSessions();
+                var sList = new List<MediaInfo>();
+                foreach (var sesItem in all)
+                {
+                    try
+                    {
+                        var p = Await(sesItem.TryGetMediaPropertiesAsync());
+                        if (p == null || string.IsNullOrEmpty(p.Title)) continue;
+                        var itemMi = new MediaInfo();
+                        itemMi.Title = p.Title;
+                        itemMi.Artist = p.Artist ?? "";
+                        itemMi.App = Friendly(sesItem.SourceAppUserModelId);
+                        var itemPb = sesItem.GetPlaybackInfo();
+                        itemMi.Playing = itemPb != null && itemPb.PlaybackStatus == WinMC.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                        itemMi.CanSeek = itemPb != null && itemPb.Controls != null && itemPb.Controls.IsPlaybackPositionEnabled;
+                        var itemTl = sesItem.GetTimelineProperties();
+                        if (itemTl != null)
+                        {
+                            double end = itemTl.EndTime.TotalSeconds, pos = itemTl.Position.TotalSeconds;
+                            if (itemMi.Playing)
+                            {
+                                var age = DateTimeOffset.Now - itemTl.LastUpdatedTime;
+                                if (age.TotalSeconds > 0 && age.TotalHours < 12) pos += age.TotalSeconds;
+                            }
+                            if (end > 0) { itemMi.Dur = end; itemMi.Pos = Math.Max(0, Math.Min(pos, end)); }
+                        }
+                        if (p.Thumbnail != null) { try { itemMi.Cover = LoadThumb(p.Thumbnail); } catch { } }
+                        itemMi.Tag = sesItem;
+                        sList.Add(itemMi);
+                    }
+                    catch { }
+                }
+                if (sList.Count > 0) AllSessions = sList;
+                else AllSessions = new List<MediaInfo> { mi };
+            }
+            catch
+            {
+                AllSessions = new List<MediaInfo> { mi };
+            }
+        }
+
+        public override void ToggleSession(MediaInfo mi)
+        {
+            var s = (mi != null ? mi.Tag as WinMC.GlobalSystemMediaTransportControlsSession : null) ?? ses;
+            if (s == null) { Toggle(); return; }
+            Fire(() => Await(s.TryTogglePlayPauseAsync()));
+        }
+
+        public override void NextSession(MediaInfo mi)
+        {
+            var s = (mi != null ? mi.Tag as WinMC.GlobalSystemMediaTransportControlsSession : null) ?? ses;
+            if (s == null) { Next(); return; }
+            Fire(() => Await(s.TrySkipNextAsync()));
+        }
+
+        public override void PrevSession(MediaInfo mi)
+        {
+            var s = (mi != null ? mi.Tag as WinMC.GlobalSystemMediaTransportControlsSession : null) ?? ses;
+            if (s == null) { Prev(); return; }
+            Fire(() => Await(s.TrySkipPreviousAsync()));
+        }
+
+        public override void SeekSession(MediaInfo mi, double seconds)
+        {
+            var s = (mi != null ? mi.Tag as WinMC.GlobalSystemMediaTransportControlsSession : null) ?? ses;
+            if (s == null) { Seek(seconds); return; }
+            long ticks = (long)(Math.Max(0, seconds) * 10000000.0);
+            Fire(() => Await(s.TryChangePlaybackPositionAsync(ticks)));
         }
 
         // Wartet auf einen Windows-Aufruf, ohne die .NET-Hilfsbibliothek (AsTask) zu brauchen
@@ -5704,7 +5903,8 @@ namespace WinDock
             var mon = a.MonitorDip();
             double k = Th.K;
             W = Math.Min(Math.Max(520, c.D("panel.width", 780)), mon.Width / k - 2 * c.D("position.sideMargin", 16));
-            H = Math.Min(Math.Max(360, c.D("panel.height", 470)), mon.Height / k - 80);
+            double maxAllowedH = Math.Max(360, mon.Height / k - 60);
+            H = Math.Min(maxAllowedH, Math.Max(560, c.D("panel.height", 620)));
 
             WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
             Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; ShowActivated = true;
@@ -6499,6 +6699,7 @@ namespace WinDock
         readonly SeekBar seek;
         readonly Grid progRow;
         Border mediaCard;
+        readonly StackPanel mediaContainer;
         readonly LinearGradientBrush CoverDefault;
 
         static LinearGradientBrush MakeCoverBrush()
@@ -6514,7 +6715,7 @@ namespace WinDock
             wifi = new Tile("\uE701", "WLAN", true);
             bt = new Tile("\uE702", "Bluetooth", true);
             audio = new Tile("\uE767", "Audio", true);
-            night = new Tile("\uE708", Loc.Tr("Nachtmodus"), true);
+            night = new Tile("\uE708", Loc.Tr("Nachtmodus"), false);
             dark = new Tile("\uE793", Loc.Tr("Dunkler Modus"), false);
             mic = new Tile("\uE720", "Mikrofon", false);
             awake = new Tile("\uE7B3", Loc.Tr("Wach bleiben"), false);
@@ -6528,7 +6729,7 @@ namespace WinDock
             wifi.Click += OpenWifi;
             bt.Click += OpenBluetooth;
             audio.Click += OpenAudio;
-            night.Click += () => Settings("ms-settings:nightlight");
+            night.Click += ToggleNight;
             dark.Click += ToggleDark;
             mic.Click += ToggleMic;
             var all = new Dictionary<string, KeyValuePair<Tile, Action>>
@@ -6536,7 +6737,7 @@ namespace WinDock
                 { "wifi", new KeyValuePair<Tile, Action>(wifi, OpenWifi) },
                 { "bluetooth", new KeyValuePair<Tile, Action>(bt, OpenBluetooth) },
                 { "audio", new KeyValuePair<Tile, Action>(audio, OpenAudio) },
-                { "night", new KeyValuePair<Tile, Action>(night, () => Settings("ms-settings:nightlight")) },
+                { "night", new KeyValuePair<Tile, Action>(night, ToggleNight) },
                 { "dark", new KeyValuePair<Tile, Action>(dark, ToggleDark) },
                 { "mic", new KeyValuePair<Tile, Action>(mic, ToggleMic) },
                 { "awake", new KeyValuePair<Tile, Action>(awake, ToggleAwake) },
@@ -6659,8 +6860,11 @@ namespace WinDock
             var card = new Border { Padding = new Thickness(18, 14, 18, 14), Child = mg };
             Th.StyleCard(card, 2);
             mediaCard = card;
-            if (showMedia) U.Put(g, card, mediaRow, 0);
-            View = U.Fit(g, 700, 370);
+
+            mediaContainer = new StackPanel();
+            mediaContainer.Children.Add(mediaCard);
+            if (showMedia) U.Put(g, mediaContainer, mediaRow, 0);
+            View = U.Scroll(g);
         }
 
         readonly Action[] tileActs;
@@ -6669,12 +6873,19 @@ namespace WinDock
         // Audio-Fenster: Ausgabegerät + Lautstärke pro App
         void OpenCast()
         {
-            App.ClosePanel();
-            ThreadPool.QueueUserWorkItem(_ =>
+            try
             {
-                Thread.Sleep(50);
-                N.SendWin(0x4B); // Win + K
-            });
+                Rect r;
+                if (cast.IsVisible)
+                {
+                    var p = cast.PointToScreen(new Point(0, 0));
+                    double sc = WinDockApp.Scale();
+                    r = new Rect(p.X / sc, p.Y / sc, cast.ActualWidth * Th.K, cast.ActualHeight * Th.K);
+                }
+                else r = App.PillRect();
+                CastFlyout.Toggle(App, r);
+            }
+            catch { }
         }
 
         void OpenWifi()
@@ -6781,6 +6992,23 @@ namespace WinDock
             mic.Set(has && !muted, !has ? Loc.Tr("Kein Gerät") : muted ? Loc.Tr("Stumm") : (Audio.MicName() ?? Loc.Tr("An")));
         }
 
+        public static void ToggleNightLightStatic()
+        {
+            NightLightControl.Toggle();
+        }
+
+        void ToggleNight()
+        {
+            NightLightControl.Toggle();
+            RefreshNight();
+        }
+
+        void RefreshNight()
+        {
+            bool on = NightLightControl.IsOn();
+            night.Set(on, on ? Loc.Tr("An") : Loc.Tr("Aus"));
+        }
+
         void ToggleDark()
         {
             bool d = !IsDark();
@@ -6838,7 +7066,7 @@ namespace WinDock
             RefreshBatterySaver();
             bool d = IsDark();
             dark.Set(d, d ? Loc.Tr("An") : Loc.Tr("Aus"));
-            night.Set(false, Loc.Tr("Einstellungen"));
+            RefreshNight();
             bt.Set(false, Loc.Tr("Einstellungen"));
             // Letzten bekannten WLAN-Stand sofort zeigen (kein kurzes Grau), dann im Hintergrund prüfen
             if (wifiKnown) wifi.Set(lastWifi != null, lastWifi ?? Loc.Tr("Nicht verbunden"));
@@ -6881,8 +7109,79 @@ namespace WinDock
             vol.SetIcon(Audio.Glyph(v, m));
         }
 
+        Border BuildSessionCard(MediaInfo mi)
+        {
+            var mg = U.G(new[] { U.Auto, U.Px(10), U.Star(1), U.Px(10), U.Auto }, null);
+            var head = new StackPanel { Orientation = Orientation.Horizontal };
+            var hi = U.I("\uE767", 11, Th.Muted); hi.Margin = new Thickness(0, 1, 6, 0);
+            var mAppTx = U.T(string.IsNullOrEmpty(mi.App) ? Loc.Tr("Medien") : mi.App, 12, Th.Muted, FontWeights.SemiBold);
+            head.Children.Add(hi); head.Children.Add(mAppTx);
+            U.Put(mg, head, 0, 0);
+
+            var main = U.G(null, new[] { U.Px(58), U.Px(14), U.Star(1), U.Auto });
+            var cardCover = new Border { Width = 58, Height = 58, CornerRadius = new CornerRadius(10), Background = CoverDefault };
+            if (mi.Cover != null) cardCover.Background = new ImageBrush(mi.Cover) { Stretch = Stretch.UniformToFill };
+            U.Put(main, cardCover, 0, 0);
+
+            var txt = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var titleTx = U.T(mi.Title, 16.5, Th.Text, FontWeights.SemiBold);
+            var artistTx = U.T(mi.Artist, 12, Th.Muted); artistTx.Margin = new Thickness(0, 2, 0, 0);
+            txt.Children.Add(titleTx); txt.Children.Add(artistTx);
+            U.Put(main, txt, 0, 2);
+
+            var ctl = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            var prev = U.IconBtn("\uE892", 34, 12, Th.Surface2, Th.Hover, Th.Text);
+            var playColor = Th.B(Th.Mix(Th.TextC, Th.AccentC, 0.12));
+            var play = U.IconBtn(mi.Playing ? "\uE769" : "\uE768", 44, 16, playColor, Th.Text, Th.B(Color.FromRgb(20, 20, 20)));
+            var next = U.IconBtn("\uE893", 34, 12, Th.Surface2, Th.Hover, Th.Text);
+            play.Margin = new Thickness(8, 0, 8, 0);
+
+            prev.Click += () => App.Media.PrevSession(mi);
+            play.Click += () => App.Media.ToggleSession(mi);
+            next.Click += () => App.Media.NextSession(mi);
+            ctl.Children.Add(prev); ctl.Children.Add(play); ctl.Children.Add(next);
+            U.Put(main, ctl, 0, 3);
+            U.Put(mg, main, 2, 0);
+
+            if (mi.Dur > 0)
+            {
+                var sProg = U.G(null, new[] { U.Px(40), U.Star(1), U.Px(40) });
+                var pPos = U.T(Time(mi.Pos), 10.5, Th.Muted, FontWeights.SemiBold);
+                var pDur = U.T(Time(mi.Dur), 10.5, Th.Muted, FontWeights.SemiBold); pDur.HorizontalAlignment = HorizontalAlignment.Right;
+                var sSeek = new SeekBar();
+                sSeek.Value = mi.Dur > 0 ? Math.Max(0, Math.Min(1, mi.Pos / mi.Dur)) : 0;
+                sSeek.Seeked += v => App.Media.SeekSession(mi, v * mi.Dur);
+                U.Put(sProg, pPos, 0, 0); U.Put(sProg, sSeek, 0, 1); U.Put(sProg, pDur, 0, 2);
+                U.Put(mg, sProg, 4, 0);
+            }
+
+            var cBorder = new Border { Padding = new Thickness(14, 12, 14, 12), Child = mg };
+            Th.StyleCard(cBorder, 2);
+            return cBorder;
+        }
+
         public void RefreshMedia()
         {
+            var sessions = App.Media.Sessions.Where(s => s != null && s.Has).ToList();
+            if (sessions.Count > 1)
+            {
+                mediaContainer.Children.Clear();
+                foreach (var sesItem in sessions)
+                {
+                    var mItem = sesItem;
+                    var c = BuildSessionCard(mItem);
+                    c.Margin = new Thickness(0, 0, 0, 10);
+                    mediaContainer.Children.Add(c);
+                }
+                return;
+            }
+
+            if (mediaContainer.Children.Count != 1 || mediaContainer.Children[0] != mediaCard)
+            {
+                mediaContainer.Children.Clear();
+                mediaContainer.Children.Add(mediaCard);
+            }
+
             var mi = App.Media.Info;
             if (mi.Has)
             {
@@ -11867,6 +12166,206 @@ namespace WinDock
             U.Put(g, U.I("\uE76C", 11, Th.Muted), 0, 2);
 
             var row = new Border { Child = g, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 6, 8, 6), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            row.MouseEnter += (s, e) => SetSel(idx);
+            row.MouseLeftButtonUp += (s, e) => { click(); e.Handled = true; };
+            rows.Add(row); rowKeys.Add(click);
+            sp.Children.Add(row);
+        }
+
+        void SetSel(int i)
+        {
+            if (rows.Count == 0) return;
+            if (sel >= 0 && sel < rows.Count) rows[sel].Background = Brushes.Transparent;
+            sel = Math.Max(0, Math.Min(rows.Count - 1, i));
+            rows[sel].Background = Th.Hover;
+            rows[sel].BringIntoView();
+        }
+
+        void OnKey(object s, KeyEventArgs e)
+        {
+            var k = e.Key == Key.System ? e.SystemKey : e.Key;
+            switch (k)
+            {
+                case Key.Escape: CloseFlyout(); e.Handled = true; return;
+                case Key.Down: SetSel(sel + 1 >= rows.Count ? 0 : sel + 1); e.Handled = true; return;
+                case Key.Up: SetSel(sel <= 0 ? rows.Count - 1 : sel - 1); e.Handled = true; return;
+                case Key.Enter: case Key.Space: if (sel >= 0 && sel < rowKeys.Count) rowKeys[sel](); e.Handled = true; return;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    //  Cast / Projektion Flyout (Benutzerdefiniert)
+    // -----------------------------------------------------------------
+    public class CastFlyout : Window
+    {
+        public static CastFlyout Current;
+        readonly WinDockApp app;
+        readonly Rect anchor;
+        readonly StackPanel sp = new StackPanel { MinWidth = 340 };
+        readonly List<Border> rows = new List<Border>();
+        readonly List<Action> rowKeys = new List<Action>();
+        int sel = -1;
+        bool closing;
+        DateTime openedAt;
+        OutsideClick outside;
+        Action<IntPtr> fgHandler;
+        IntPtr hwnd;
+
+        public CastFlyout(WinDockApp a, Rect anchorScreen)
+        {
+            app = a; anchor = anchorScreen;
+            WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
+            Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
+            Title = "WinDock Cast & Project";
+            UseLayoutRounding = true; FontFamily = Th.Font;
+            TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+            Content = new Border
+            {
+                Background = Th.Bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(10), Margin = new Thickness(16),
+                LayoutTransform = new ScaleTransform(Th.K, Th.K),
+                Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, MaxHeight = 520, Focusable = false },
+                Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
+            };
+            SourceInitialized += (s, e) => { hwnd = new WindowInteropHelper(this).Handle; N.AddExStyle(hwnd, 0x80); };
+            PreviewKeyDown += OnKey;
+            outside = new OutsideClick(() => CloseFlyout(), root => root == hwnd);
+            fgHandler = hw =>
+            {
+                if (closing || (DateTime.Now - openedAt).TotalMilliseconds < 600 || hw == IntPtr.Zero) return;
+                uint pid; N.GetWindowThreadProcessId(hw, out pid);
+                if (pid != (uint)Process.GetCurrentProcess().Id) CloseFlyout();
+            };
+            Build();
+        }
+
+        public static void Toggle(WinDockApp a, Rect anchorScreen)
+        {
+            if (Current != null) { Current.CloseFlyout(); return; }
+            if (AudioFlyout.Current != null) AudioFlyout.Current.CloseFlyout();
+            if (WifiFlyout.Current != null) WifiFlyout.Current.CloseFlyout();
+            if (BluetoothFlyout.Current != null) BluetoothFlyout.Current.CloseFlyout();
+            if (TrayFlyout.Current != null) TrayFlyout.Current.CloseFlyout();
+            if (MenuWindow.Current != null) MenuWindow.Current.CloseMenu();
+            var f = new CastFlyout(a, anchorScreen);
+            Current = f;
+            f.Open();
+        }
+
+        void Open()
+        {
+            Left = -10000; Top = -10000;
+            Show();
+            UpdateLayout();
+            var mon = app.MonitorDip();
+            double k = Th.K;
+            double x = Math.Max(mon.Left + 4, Math.Min(anchor.X - 16 * k, mon.Right - ActualWidth - 4));
+            bool below = anchor.Y + anchor.Height / 2 < mon.Top + mon.Height / 2;
+            double y = below ? anchor.Bottom - 8 * k : anchor.Top - ActualHeight + 8 * k;
+            Left = x; Top = Math.Max(mon.Top, Math.Min(y, mon.Bottom - ActualHeight));
+            N.SetWindowPos(hwnd, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            Activate();
+            N.ForceForeground(hwnd);
+            Focus();
+            openedAt = DateTime.Now;
+            outside.Start();
+            WinDockApp.ForegroundChanged += fgHandler;
+            if (rows.Count > 0) SetSel(0);
+        }
+
+        public void CloseFlyout()
+        {
+            if (closing) return;
+            closing = true;
+            WinDockApp.ForegroundChanged -= fgHandler;
+            outside.Stop();
+            Current = null;
+            Close();
+        }
+
+        void Build()
+        {
+            sp.Children.Clear(); rows.Clear(); rowKeys.Clear();
+            sp.Children.Add(Head(Loc.Tr("Projektion & Übertragen")));
+
+            AddProjectRow("\uE7F4", Loc.Tr("Duplizieren"), Loc.Tr("Gleicher Inhalt auf beiden Bildschirmen"), () =>
+            {
+                RunDisplaySwitch("/clone");
+                CloseFlyout();
+            });
+
+            AddProjectRow("\uE7F8", Loc.Tr("Erweitern"), Loc.Tr("Zweiten Desktop erweitern"), () =>
+            {
+                RunDisplaySwitch("/extend");
+                CloseFlyout();
+            });
+
+            AddProjectRow("\uE7F6", Loc.Tr("Nur zweiter Bildschirm"), Loc.Tr("Hauptbildschirm ausschalten"), () =>
+            {
+                RunDisplaySwitch("/external");
+                CloseFlyout();
+            });
+
+            AddProjectRow("\uE7F7", Loc.Tr("Nur PC-Bildschirm"), Loc.Tr("Externe Anzeige trennen"), () =>
+            {
+                RunDisplaySwitch("/internal");
+                CloseFlyout();
+            });
+
+            sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(8, 8, 8, 6) });
+            var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 4, 2) };
+            links.Children.Add(Link(Loc.Tr("Drahtlose Anzeige verbinden"), "ms-settings:connecteddevices"));
+            links.Children.Add(Link(Loc.Tr("Anzeigeeinstellungen"), "ms-settings:display"));
+            sp.Children.Add(links);
+        }
+
+        void RunDisplaySwitch(string arg)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("DisplaySwitch.exe", arg) { UseShellExecute = true, CreateNoWindow = true });
+            }
+            catch { }
+        }
+
+        TextBlock Head(string t)
+        {
+            var h = U.T(Loc.Tr(t).ToUpper(Th.Cul), 10.5, Th.Muted, FontWeights.Bold);
+            h.Margin = new Thickness(10, sp.Children.Count == 0 ? 4 : 12, 10, 6);
+            return h;
+        }
+
+        Button Link(string text, string uri)
+        {
+            var b = new Button
+            {
+                Content = U.T(text, 12, Th.Accent, FontWeights.SemiBold),
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
+                Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 4, 0)
+            };
+            b.Click += (s, e) => { CloseFlyout(); AppIndex.Open(uri); };
+            return b;
+        }
+
+        void AddProjectRow(string glyph, string title, string subtitle, Action click)
+        {
+            int idx = rows.Count;
+            var g = U.G(null, new[] { U.Px(36), U.Star(1), U.Px(20) });
+            U.Put(g, U.I(glyph, 16, Th.Accent), 0, 0);
+
+            var spText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var t = U.T(title, 13.5, Th.Text, FontWeights.SemiBold);
+            spText.Children.Add(t);
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var s = U.T(subtitle, 11, Th.Muted);
+                s.Margin = new Thickness(0, 1, 0, 0);
+                spText.Children.Add(s);
+            }
+            U.Put(g, spText, 0, 1);
+            U.Put(g, U.I("\uE76C", 11, Th.Muted), 0, 2);
+
+            var row = new Border { Child = g, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 7, 6, 7), Background = Brushes.Transparent, Cursor = Cursors.Hand };
             row.MouseEnter += (s, e) => SetSel(idx);
             row.MouseLeftButtonUp += (s, e) => { click(); e.Handled = true; };
             rows.Add(row); rowKeys.Add(click);
