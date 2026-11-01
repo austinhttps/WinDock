@@ -8723,29 +8723,24 @@ namespace WinDock
         {
             var g = U.G(new[] { U.Px(46), U.Px(10), U.Star(1) }, null);
 
-            var topBar = U.G(null, new[] { U.Star(1), U.Auto, U.Px(6), U.Auto, U.Px(6), U.Auto });
+            var topBar = U.G(null, new[] { U.Star(1), U.Auto, U.Px(6), U.Auto });
             countTb = U.T(Loc.Tr("Benachrichtigungen"), 16, Th.Text, FontWeights.Bold);
             countTb.VerticalAlignment = VerticalAlignment.Center;
             U.Put(topBar, countTb, 0, 0);
 
-            var clearBtn = new Btn(U.T(Loc.Tr("Alle löschen"), 12, Th.Text, FontWeights.SemiBold), Th.Surface2, Th.Hover, 8, new Thickness(10, 5, 10, 5));
+            var refreshBtn = U.IconBtn("\uE72C", 30, 12, Th.Surface2, Th.Hover, Th.Muted);
+            refreshBtn.ToolTip = Loc.Tr("Aktualisieren");
+            refreshBtn.Click += () => LoadNotifications();
+            U.Put(topBar, refreshBtn, 0, 1);
+
+            var clearBtn = U.IconBtn("\uE711", 30, 11, Th.Surface2, Th.Hover, Th.Muted);
             clearBtn.ToolTip = Loc.Tr("Alle Benachrichtigungen löschen");
             clearBtn.Click += () =>
             {
                 foreach (var item in currentList) dismissed.Add(item.App + "|" + item.Title + "|" + item.Time.Ticks);
                 RenderNotifications(new List<NotificationItem>());
             };
-            U.Put(topBar, clearBtn, 0, 1);
-
-            var refreshBtn = U.IconBtn("\uE72C", 30, 12, Th.Surface2, Th.Hover, Th.Muted);
-            refreshBtn.ToolTip = Loc.Tr("Aktualisieren");
-            refreshBtn.Click += () => LoadNotifications();
-            U.Put(topBar, refreshBtn, 0, 3);
-
-            var winBtn = new Btn(U.T(Loc.Tr("Info-Center"), 12, Th.Accent, FontWeights.SemiBold), Th.Surface2, Th.Hover, 8, new Thickness(10, 5, 10, 5));
-            winBtn.ToolTip = Loc.Tr("Windows-Benachrichtigungscenter öffnen (Win+N)");
-            winBtn.Click += () => { App.ClosePanel(); N.OpenNotificationCenter(); };
-            U.Put(topBar, winBtn, 0, 5);
+            U.Put(topBar, clearBtn, 0, 3);
             U.Put(g, topBar, 0, 0);
 
             var scroll = U.Scroll(itemsSp);
