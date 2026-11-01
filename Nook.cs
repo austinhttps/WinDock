@@ -1154,6 +1154,20 @@ namespace Nook
         [DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr h, uint flags);
         [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr mon, ref MONITORINFO mi);
         [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int val, int size);
+        [DllImport("dwmapi.dll")] public static extern int DwmRegisterThumbnail(IntPtr dest, IntPtr src, out IntPtr thumb);
+        [DllImport("dwmapi.dll")] public static extern int DwmUnregisterThumbnail(IntPtr thumb);
+        [DllImport("dwmapi.dll")] public static extern int DwmUpdateThumbnailProperties(IntPtr thumb, ref DWM_THUMBNAIL_PROPERTIES props);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DWM_THUMBNAIL_PROPERTIES
+        {
+            public int dwFlags;
+            public RECT rcDestination;
+            public RECT rcSource;
+            public byte opacity;
+            [MarshalAs(UnmanagedType.Bool)] public bool fVisible;
+            [MarshalAs(UnmanagedType.Bool)] public bool fSourceClientAreaOnly;
+        }
         [DllImport("shell32.dll")] public static extern IntPtr SHAppBarMessage(uint msg, ref APPBARDATA d);
         [DllImport("shell32.dll")] public static extern int SHQueryUserNotificationState(out int state);
         [DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint action, uint param, ref RECT r, uint winIni);
@@ -4304,7 +4318,7 @@ namespace Nook
                 if (overIcon && (!shown || peek.Key != hoverKey) && (shown || (DateTime.Now - hoverSince).TotalMilliseconds > 350))
                 {
                     var ws = Group(hoverKey);
-                    if (ws.Count < 2) { if (peek != null) peek.HideNow(); return; }
+                    if (ws.Count < 1) { if (peek != null) peek.HideNow(); return; }
                     if (peek == null) peek = new PeekWindow(app);
                     var p = hoverBtn.PointToScreen(new Point(0, 0));
                     double sc = NookApp.Scale();
@@ -7581,7 +7595,9 @@ namespace Nook
     {
         readonly NookApp app;
         public string Key;
-        readonly StackPanel sp = new StackPanel();
+        readonly StackPanel container = new StackPanel();
+        readonly WrapPanel cardsPanel = new WrapPanel();
+        readonly List<IntPtr> thumbs = new List<IntPtr>();
         public IntPtr Handle;
 
         public PeekWindow(NookApp a)
@@ -7592,11 +7608,15 @@ namespace Nook
             SizeToContent = SizeToContent.WidthAndHeight; Title = "Nook Fenster";
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+
+            container.Children.Add(cardsPanel);
+
             Content = new Border
             {
-                Background = Th.Bg, CornerRadius = new CornerRadius(14), Padding = new Thickness(6), Child = sp, Margin = new Thickness(16),
+                Background = Th.Bg, CornerRadius = new CornerRadius(14), Padding = new Thickness(8),
+                Child = container, Margin = new Thickness(16),
                 LayoutTransform = new ScaleTransform(Th.K, Th.K),
-                Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Direction = 270, Opacity = 0.5, Color = Colors.Black }
             };
             SourceInitialized += (s, e) =>
             {
@@ -7606,49 +7626,144 @@ namespace Nook
             Left = -10000; Top = -10000;
         }
 
+        void ClearThumbs()
+        {
+            foreach (var t in thumbs)
+            {
+                try { N.DwmUnregisterThumbnail(t); } catch { }
+            }
+            thumbs.Clear();
+        }
+
         public void ShowFor(string key, List<WinItem> ws, Rect anchor)
         {
             Key = key;
-            sp.Children.Clear();
-            var head = U.T(ws[0].Name + "  ·  " + ws.Count + Loc.Tr(" Fenster"), 11.5, Th.Muted, FontWeights.SemiBold);
-            head.Margin = new Thickness(10, 4, 10, 6);
-            sp.Children.Add(head);
+            ClearThumbs();
+            cardsPanel.Children.Clear();
+
             IntPtr fg = N.GetForegroundWindow();
-            foreach (var w in ws.Take(14))
+            var pendingThumbs = new List<KeyValuePair<IntPtr, Border>>();
+
+            foreach (var w in ws.Take(8))
             {
                 var x = w;
-                var g = U.G(null, new[] { U.Px(22), U.Px(10), U.Star(1), U.Px(28) });
+                var card = new Border
+                {
+                    Width = 200, Margin = new Thickness(4), CornerRadius = new CornerRadius(10),
+                    Background = Th.Surface, BorderBrush = (x.H == fg) ? Th.Accent : Th.Faint,
+                    BorderThickness = new Thickness(x.H == fg ? 1.5 : 1), Padding = new Thickness(8)
+                };
+
+                var cardGrid = new Grid();
+                cardGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                cardGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(112) });
+
+                // Titelzeile
+                var head = U.G(null, new[] { U.Px(20), U.Px(6), U.Star(1), U.Px(24) });
                 var ic = WinList.Icon(x);
-                U.Put(g, ic != null ? (UIElement)new Image { Source = ic, Width = 18, Height = 18 } : U.Letter(x.Name, 18), 0, 0);
-                var t = U.T(x.Title, 13, x.H == fg ? Th.Accent : Th.Text, FontWeights.SemiBold);
-                t.MaxWidth = 340;
-                U.Put(g, t, 0, 2);
-                var close = U.IconBtn("", 24, 9, Brushes.Transparent, Th.Surface2, Th.Muted);
-                close.Click += () => { WinList.Close(x.H); app.Pill.RefreshWindowsSoon(); Dispatcher.BeginInvoke(new Action(Refill), DispatcherPriority.Background); };
-                U.Put(g, close, 0, 3);
-                var row = new Btn(g, Brushes.Transparent, Th.Hover, 9, new Thickness(8, 6, 4, 6)) { MinWidth = 240 };
-                row.Click += () => { WinList.Activate(x.H); HideNow(); app.Pill.RefreshWindowsSoon(); };
-                sp.Children.Add(row);
+                U.Put(head, ic != null ? (UIElement)new Image { Source = ic, Width = 16, Height = 16 } : U.Letter(x.Name, 16), 0, 0);
+
+                var title = U.T(x.Title, 12, (x.H == fg) ? Th.Accent : Th.Text, FontWeights.SemiBold);
+                title.MaxWidth = 135;
+                U.Put(head, title, 0, 2);
+
+                var closeBtn = U.IconBtn("\uE711", 20, 10, Brushes.Transparent, Th.B(Color.FromRgb(230, 60, 60)), Th.Muted);
+                closeBtn.ToolTip = Loc.Tr("Schließen");
+                closeBtn.Click += () =>
+                {
+                    WinList.Close(x.H);
+                    app.Pill.RefreshWindowsSoon();
+                    Dispatcher.BeginInvoke(new Action(Refill), DispatcherPriority.Background);
+                };
+                U.Put(head, closeBtn, 0, 3);
+                Grid.SetRow(head, 0);
+                cardGrid.Children.Add(head);
+
+                // Thumbnail-Vorschaufläche
+                var thumbBox = new Border
+                {
+                    Margin = new Thickness(0, 6, 0, 0), CornerRadius = new CornerRadius(6),
+                    Background = Th.Surface2, ClipToBounds = true
+                };
+                Grid.SetRow(thumbBox, 1);
+                cardGrid.Children.Add(thumbBox);
+
+                // Thumbnail einplanen
+                pendingThumbs.Add(new KeyValuePair<IntPtr, Border>(x.H, thumbBox));
+
+                card.Child = cardGrid;
+                card.Cursor = Cursors.Hand;
+                card.MouseEnter += (s, e) => { card.Background = Th.Hover; };
+                card.MouseLeave += (s, e) => { card.Background = Th.Surface; };
+                card.MouseLeftButtonUp += (s, e) =>
+                {
+                    WinList.Activate(x.H);
+                    HideNow();
+                    app.Pill.RefreshWindowsSoon();
+                };
+
+                cardsPanel.Children.Add(card);
             }
+
             if (!IsVisible) Show();
             UpdateLayout();
+
             var mon = app.MonitorDip();
             double x0 = anchor.X + anchor.Width / 2 - ActualWidth / 2;
             x0 = Math.Max(mon.Left + 4, Math.Min(x0, mon.Right - ActualWidth - 4));
             bool below = anchor.Y < mon.Top + mon.Height / 2;
             Left = x0;
             Top = below ? anchor.Bottom - 10 * Th.K : anchor.Top - ActualHeight + 10 * Th.K;
-            if (Handle != IntPtr.Zero) N.SetWindowPos(Handle, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+
+            if (Handle != IntPtr.Zero)
+            {
+                N.SetWindowPos(Handle, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+
+                // DWM Thumbnails nach Platzierung registrieren
+                double scale = NookApp.Scale();
+                foreach (var pair in pendingThumbs)
+                {
+                    IntPtr targetH = pair.Key;
+                    Border b = pair.Value;
+                    try
+                    {
+                        IntPtr thumb;
+                        if (N.DwmRegisterThumbnail(Handle, targetH, out thumb) == 0)
+                        {
+                            thumbs.Add(thumb);
+                            var pt = b.TranslatePoint(new Point(0, 0), this);
+                            var props = new N.DWM_THUMBNAIL_PROPERTIES();
+                            props.dwFlags = 0x1 | 0x8 | 0x10; // RECTDESTINATION | VISIBLE | SOURCECLIENTAREAONLY
+                            props.fVisible = true;
+                            props.fSourceClientAreaOnly = false;
+                            props.rcDestination = new RECT
+                            {
+                                Left = (int)Math.Round(pt.X * scale),
+                                Top = (int)Math.Round(pt.Y * scale),
+                                Right = (int)Math.Round((pt.X + b.ActualWidth) * scale),
+                                Bottom = (int)Math.Round((pt.Y + b.ActualHeight) * scale)
+                            };
+                            N.DwmUpdateThumbnailProperties(thumb, ref props);
+                        }
+                    }
+                    catch { }
+                }
+            }
         }
 
         void Refill()
         {
             var ws = WinList.Get().Where(w => w.Key == Key).ToList();
-            if (ws.Count < 2) { HideNow(); return; }
+            if (ws.Count < 1) { HideNow(); return; }
             ShowFor(Key, ws, new Rect(Left + ActualWidth / 2, Top, 0, 0));
         }
 
-        public void HideNow() { Key = null; if (IsVisible) Hide(); }
+        public void HideNow()
+        {
+            ClearThumbs();
+            Key = null;
+            if (IsVisible) Hide();
+        }
     }
 
     // -----------------------------------------------------------------
