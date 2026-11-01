@@ -180,7 +180,7 @@ namespace Nook
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
-  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
+  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
@@ -442,6 +442,7 @@ namespace Nook
             { "Verbinden", "Connect" },
             { "Helligkeits-Regler", "Brightness slider" },
             { "Stromsparmodus", "Battery saver" },
+            { "Nicht stören", "Do not disturb" },
             { "Energie sparen", "Sleep" },
             { "Abmelden", "Sign out" },
             { "Neu starten", "Restart" },
@@ -5687,12 +5688,134 @@ namespace Nook
     // -----------------------------------------------------------------
     //  Tab: Steuerung
     // -----------------------------------------------------------------
+
+    // -----------------------------------------------------------------
+    //  Nicht stören / Focus Assist (Windows CloudStore)
+    // -----------------------------------------------------------------
+    public static class DndControl
+    {
+        static readonly byte[] PatternUnrestricted = Encoding.Unicode.GetBytes("Unrestricted");
+        static readonly byte[] PatternPriority = Encoding.Unicode.GetBytes("PriorityOnly");
+        static readonly byte[] PatternAlarms = Encoding.Unicode.GetBytes("AlarmsOnly");
+        static bool cachedDnd;
+        static DateTime lastCheck = DateTime.MinValue;
+
+        static int IndexOf(byte[] src, byte[] pattern)
+        {
+            if (src == null || pattern == null || src.Length < pattern.Length) return -1;
+            for (int i = 0; i <= src.Length - pattern.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < pattern.Length; j++)
+                {
+                    if (src[i + j] != pattern[j]) { match = false; break; }
+                }
+                if (match) return i;
+            }
+            return -1;
+        }
+
+        public static bool IsDnd()
+        {
+            if ((DateTime.Now - lastCheck).TotalSeconds < 2) return cachedDnd;
+            lastCheck = DateTime.Now;
+            try
+            {
+                using (var baseKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current"))
+                {
+                    if (baseKey != null)
+                    {
+                        foreach (var sub in baseKey.GetSubKeyNames())
+                        {
+                            if (sub.IndexOf("quiethourssettings", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                using (var k = baseKey.OpenSubKey(sub + @"\windows.data.donotdisturb.quiethourssettings"))
+                                {
+                                    if (k != null)
+                                    {
+                                        byte[] data = k.GetValue("Data") as byte[];
+                                        if (data != null)
+                                        {
+                                            if (IndexOf(data, PatternPriority) >= 0 || IndexOf(data, PatternAlarms) >= 0)
+                                            {
+                                                cachedDnd = true;
+                                                return true;
+                                            }
+                                            if (IndexOf(data, PatternUnrestricted) >= 0)
+                                            {
+                                                cachedDnd = false;
+                                                return false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return cachedDnd;
+        }
+
+        public static void Toggle()
+        {
+            cachedDnd = !IsDnd();
+            lastCheck = DateTime.Now;
+            try
+            {
+                using (var baseKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\DefaultAccount\Current", true))
+                {
+                    if (baseKey != null)
+                    {
+                        foreach (var sub in baseKey.GetSubKeyNames())
+                        {
+                            if (sub.IndexOf("quiethourssettings", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                using (var k = baseKey.OpenSubKey(sub + @"\windows.data.donotdisturb.quiethourssettings", true))
+                                {
+                                    if (k != null)
+                                    {
+                                        byte[] data = k.GetValue("Data") as byte[];
+                                        if (data != null)
+                                        {
+                                            if (cachedDnd)
+                                            {
+                                                int idx = IndexOf(data, PatternUnrestricted);
+                                                if (idx >= 0)
+                                                {
+                                                    Buffer.BlockCopy(PatternPriority, 0, data, idx, PatternPriority.Length);
+                                                    k.SetValue("Data", data, Microsoft.Win32.RegistryValueKind.Binary);
+                                                }
+                                            }
+                                            else
+                                            {
+                                                int idx = IndexOf(data, PatternPriority);
+                                                if (idx < 0) idx = IndexOf(data, PatternAlarms);
+                                                if (idx >= 0)
+                                                {
+                                                    Buffer.BlockCopy(PatternUnrestricted, 0, data, idx, PatternUnrestricted.Length);
+                                                    k.SetValue("Data", data, Microsoft.Win32.RegistryValueKind.Binary);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+    }
+
     public class ControlsTab : TabBase
     {
         public override string Id { get { return "controls"; } }
         public override string Title { get { return Loc.Tr("Steuerung"); } }
 
-        readonly Tile wifi, bt, audio, night, dark, mic, awake, cast, batterySaver;
+        readonly Tile wifi, bt, audio, night, dark, mic, awake, cast, batterySaver, dnd;
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
@@ -5726,6 +5849,8 @@ namespace Nook
             cast.Click += OpenCast;
             batterySaver = new Tile("\uEBAA", Loc.Tr("Stromsparmodus"), false);
             batterySaver.Click += ToggleBatterySaver;
+            dnd = new Tile("\uEC4B", Loc.Tr("Nicht stören"), false);
+            dnd.Click += ToggleDnd;
             wifi.Click += () => Settings("ms-settings:network-wifi");
             bt.Click += () => Settings("ms-settings:bluetooth");
             audio.Click += OpenAudio;
@@ -5742,7 +5867,8 @@ namespace Nook
                 { "mic", new KeyValuePair<Tile, Action>(mic, ToggleMic) },
                 { "awake", new KeyValuePair<Tile, Action>(awake, ToggleAwake) },
                 { "cast", new KeyValuePair<Tile, Action>(cast, OpenCast) },
-                { "batterysaver", new KeyValuePair<Tile, Action>(batterySaver, ToggleBatterySaver) }
+                { "batterysaver", new KeyValuePair<Tile, Action>(batterySaver, ToggleBatterySaver) },
+                { "dnd", new KeyValuePair<Tile, Action>(dnd, ToggleDnd) }
             };
             // Kacheln in der eingestellten Reihenfolge, je 3 pro Reihe
             var ids = app.Cfg.L("controls.tiles").Select(x => Convert.ToString(x)).Where(all.ContainsKey).Distinct().ToList();
@@ -5879,10 +6005,23 @@ namespace Nook
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
         }
 
+        void ToggleDnd()
+        {
+            DndControl.Toggle();
+            RefreshDnd();
+        }
+
+        void RefreshDnd()
+        {
+            bool on = DndControl.IsDnd();
+            dnd.Set(on, on ? Loc.Tr("An") : Loc.Tr("Aus"));
+        }
+
         void ToggleBatterySaver()
         {
             N.ToggleBatterySaver();
             RefreshBatterySaver();
+            RefreshDnd();
         }
 
         void RefreshBatterySaver()
@@ -9039,7 +9178,7 @@ namespace Nook
             return new[]
             {
                 new[] { "wifi", Loc.Tr("WLAN"), "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
-                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }
+                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }, new[] { "dnd", Loc.Tr("Nicht stören"), "" }
             };
         }
 
@@ -9635,7 +9774,7 @@ namespace Nook
                 var subs = new Dictionary<string, string[]>
                 {
                     { "wifi", new[] { "1", Loc.Tr("Zuhause 5G") } }, { "bluetooth", new[] { "0", Loc.Tr("Einstellungen") } }, { "audio", new[] { "1", Loc.Tr("Lautsprecher") } },
-                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }, { "batterysaver", new[] { "0", Loc.Tr("Aus") } }
+                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }, { "batterysaver", new[] { "0", Loc.Tr("Aus") } }, { "dnd", new[] { "0", Loc.Tr("Aus") } }
                 };
                 var rowsDef = new List<GridLength>();
                 int tileRows = (ids.Count + 2) / 3;
@@ -9657,7 +9796,7 @@ namespace Nook
                         int i = r * 3 + ci;
                         if (i >= ids.Count) break;
                         var def = all.First(a => a[0] == ids[i]);
-                        var tile = new Tile(def[2], def[1], ids[i] != "dark" && ids[i] != "mic" && ids[i] != "awake" && ids[i] != "batterysaver");
+                        var tile = new Tile(def[2], def[1], ids[i] != "dark" && ids[i] != "mic" && ids[i] != "awake" && ids[i] != "batterysaver" && ids[i] != "dnd");
                         tile.Set(subs[ids[i]][0] == "1", subs[ids[i]][1]);
                         U.Put(rg, tile, 0, ci * 2);
                     }
