@@ -269,6 +269,8 @@ namespace Nook
             if (D == null) D = new Dictionary<string, object>();
         }
 
+        public bool Has(string k) { return D != null && D.ContainsKey(k); }
+
         public List<string> Strs(string k)
         {
             object v;
@@ -442,6 +444,8 @@ namespace Nook
             { "Verbinden", "Connect" },
             { "Helligkeits-Regler", "Brightness slider" },
             { "Suchleiste", "Search bar" },
+            { "An Pille anheften", "Pin to pill (dock)" },
+            { "Von Pille lösen", "Unpin from pill (dock)" },
             { "wie im Windows-Startmenü", "like regular Windows start menu" },
             { "Stromsparmodus", "Battery saver" },
             { "Nicht stören", "Do not disturb" },
@@ -4381,7 +4385,7 @@ namespace Nook
                 l.Add(w);
             }
 
-            var starred = app.Cfg.B("pill.showFavorites", true) ? app.Store.Strs("starred") : new List<string>();
+            var starred = app.Cfg.B("pill.showFavorites", true) ? (app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred")) : new List<string>();
             var dockItems = new List<DockAppItem>();
             var matchedRunning = new HashSet<string>();
 
@@ -4620,11 +4624,14 @@ namespace Nook
                             else try { Process.Start(curItem.Parse); } catch { }
                         }));
                         mis.Add(MI.Sep());
-                        mis.Add(MI.Item(Loc.Tr("Von Favoriten lösen"), "\uE735", () =>
+                        mis.Add(MI.Item(Loc.Tr("Von Pille l\u00f6sen"), "\uE77A", () =>
                         {
                             var st = app.Store.Strs("starred");
                             st.Remove(curItem.Parse);
                             app.Store.Set("starred", st);
+                            var p = app.Store.Strs("pill.pinned");
+                            p.Remove(curItem.Parse);
+                            app.Store.Set("pill.pinned", p);
                             RefreshWindowsSoon();
                         }));
                         new MenuWindow(app, mis, pt).Open();
@@ -8510,6 +8517,15 @@ namespace Nook
                 items.Add(MI.Item(Loc.Tr("Dateispeicherort öffnen"), "", Loc.Tr("Strg+O"), () => { app.ClosePanel(); ShowInFolder(exe); }));
             }
             items.Add(MI.Item(starred ? Loc.Tr("Von Favoriten lösen") : Loc.Tr("Zu Favoriten"), starred ? "" : "", Loc.Tr("Strg+S"), toggleStar));
+            bool isPillPinned = (app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred")).Contains(a.Parse);
+            items.Add(MI.Item(isPillPinned ? Loc.Tr("Von Pille l\u00f6sen") : Loc.Tr("An Pille anheften"), isPillPinned ? "\uE77A" : "\uE718", () =>
+            {
+                var p = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                if (p.Contains(a.Parse)) p.Remove(a.Parse);
+                else p.Add(a.Parse);
+                app.Store.Set("pill.pinned", p);
+                if (app.Pill != null) app.Pill.RefreshWindowsSoon();
+            }));
             items.Add(MI.Sep());
             items.Add(MI.Item(Loc.Tr("Deinstallieren"), "", () => { app.ClosePanel(); Uninstall(); }));
             return items;
