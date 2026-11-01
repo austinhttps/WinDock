@@ -2537,17 +2537,42 @@ namespace WinDock
             Fire(() => Await(s.TryChangePlaybackPositionAsync(ticks)));
         }
 
+        DateTime lastValidMedia = DateTime.MinValue;
+        MediaInfo lastValidInfo = new MediaInfo();
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         void PollRich()
         {
             if (mgr == null) mgr = Await(WinMC.GlobalSystemMediaTransportControlsSessionManager.RequestAsync());
             var s = mgr.GetCurrentSession();
             ses = s;
-            if (s == null) { Info = new MediaInfo(); return; }
+            if (s == null)
+            {
+                if ((DateTime.Now - lastValidMedia).TotalSeconds < 1.5 && lastValidInfo.Has)
+                {
+                    Info = lastValidInfo;
+                    return;
+                }
+                Info = new MediaInfo();
+                return;
+            }
             var props = Await(s.TryGetMediaPropertiesAsync());
             var mi = new MediaInfo();
-            mi.Title = props.Title ?? "";
-            mi.Artist = props.Artist ?? "";
+            mi.Title = props != null ? (props.Title ?? "") : "";
+            mi.Artist = props != null ? (props.Artist ?? "") : "";
+            if (string.IsNullOrEmpty(mi.Title))
+            {
+                if ((DateTime.Now - lastValidMedia).TotalSeconds < 1.5 && lastValidInfo.Has)
+                {
+                    Info = lastValidInfo;
+                    return;
+                }
+            }
+            else
+            {
+                lastValidMedia = DateTime.Now;
+                lastValidInfo = mi;
+            }
             mi.App = Friendly(s.SourceAppUserModelId);
             var pb = s.GetPlaybackInfo();
             mi.Playing = pb != null && pb.PlaybackStatus == WinMC.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
@@ -3752,7 +3777,7 @@ namespace WinDock
             finally { mediaBusy = 0; }
             Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (Pill != null) Pill.Refresh();
+                if (Pill != null) Pill.RefreshMediaOnly();
                 if (Panel != null && Panel.IsOpen) Panel.MediaChanged();
             }));
         }
@@ -4201,6 +4226,7 @@ namespace WinDock
                 uint pid; N.GetWindowThreadProcessId(h, out pid);
                 if (pid == Me) return true;
                 var info = Info(pid);
+                if (info[0] != null && info[0].EndsWith("explorer.exe", StringComparison.OrdinalIgnoreCase) && cls != "CabinetWClass" && cls != "ExploreWClass") return true;
                 bool uwp = info[1] == "ApplicationFrameHost";
                 res.Add(new WinItem
                 {
@@ -4308,6 +4334,7 @@ namespace WinDock
 
         // offene Apps
         readonly List<string> order = new List<string>();
+        readonly List<DockAppItem> overflowDockItems = new List<DockAppItem>();
         string winSig = "";
         DispatcherTimer soon;
         string appDragKey;
@@ -4418,7 +4445,7 @@ namespace WinDock
 
             trayBtn = new Btn(U.I("\uE70E", fs, Th.Text), Brushes.Transparent, Th.Hover, (h - 10) / 2, new Thickness(6, 3, 6, 3));
             trayBtn.ToolTip = Loc.Tr("Infobereich (System-Tray)");
-            trayBtn.Click += () => N.OpenTrayOverflow();
+            trayBtn.Click += () => TrayFlyout.Toggle(app, app.PillRect(), overflowDockItems);
             trayBtn.MouseRightButtonUp += (s, e) =>
             {
                 var pt = MenuAnchor(ScreenDip(e));
@@ -4767,6 +4794,22 @@ namespace WinDock
             RefreshWindows();
         }
 
+        public void RefreshMediaOnly()
+        {
+            var c = app.Cfg;
+            var now = DateTime.Now;
+            bool flash = flashText != null && (flashSticky || now < flashUntil);
+            var mi = app.Media.Info;
+            bool showMedia = !flash && c.B("pill.showMedia", true) && mi.Has;
+            mediaSp.Visibility = showMedia ? Visibility.Visible : Visibility.Collapsed;
+            if (showMedia)
+            {
+                media.Text = string.IsNullOrEmpty(mi.Artist) ? mi.Title : mi.Title + "  ·  " + mi.Artist;
+                media.Foreground = mi.Playing ? Th.Text : Th.Muted;
+                dot.Background = mi.Playing ? Th.Accent : Th.Muted;
+            }
+        }
+
         // --- offene Apps rechts in der Pille --------------------------
         public void RefreshWindowsSoon()
         {
@@ -4820,14 +4863,23 @@ namespace WinDock
                 }
 
                 string matchKey = null;
+                string starFile = System.IO.Path.GetFileName(star);
+                string starNoExt = System.IO.Path.GetFileNameWithoutExtension(star);
                 foreach (var kvp in groups)
                 {
                     var firstW = kvp.Value[0];
-                    if (string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(firstW.Path, star, StringComparison.OrdinalIgnoreCase) ||
-                        (ae != null && (string.Equals(firstW.Path, ae.Target, StringComparison.OrdinalIgnoreCase) ||
-                                        string.Equals(firstW.Path, ae.Parse, StringComparison.OrdinalIgnoreCase) ||
-                                        string.Equals(firstW.Name, ae.Name, StringComparison.OrdinalIgnoreCase))))
+                    string firstWFile = !string.IsNullOrEmpty(firstW.Path) ? System.IO.Path.GetFileName(firstW.Path) : "";
+                    string firstWNoExt = !string.IsNullOrEmpty(firstW.Path) ? System.IO.Path.GetFileNameWithoutExtension(firstW.Path) : "";
+
+                    bool isMatch = string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
+                                   string.Equals(firstW.Path, star, StringComparison.OrdinalIgnoreCase) ||
+                                   (!string.IsNullOrEmpty(firstWFile) && (string.Equals(firstWFile, starFile, StringComparison.OrdinalIgnoreCase) || string.Equals(firstWNoExt, starNoExt, StringComparison.OrdinalIgnoreCase))) ||
+                                   (ae != null && (string.Equals(firstW.Path, ae.Target, StringComparison.OrdinalIgnoreCase) ||
+                                                   string.Equals(firstW.Path, ae.Parse, StringComparison.OrdinalIgnoreCase) ||
+                                                   string.Equals(firstW.Name, ae.Name, StringComparison.OrdinalIgnoreCase) ||
+                                                   (!string.IsNullOrEmpty(ae.Target) && (string.Equals(System.IO.Path.GetFileName(ae.Target), firstWFile, StringComparison.OrdinalIgnoreCase) ||
+                                                                                         string.Equals(System.IO.Path.GetFileNameWithoutExtension(ae.Target), firstWNoExt, StringComparison.OrdinalIgnoreCase)))));
+                    if (isMatch)
                     {
                         matchKey = kvp.Key;
                         break;
@@ -4870,8 +4922,21 @@ namespace WinDock
 
             IntPtr fg = N.GetForegroundWindow();
             string fgKey = all.Where(w => w.H == fg).Select(w => KeyOf(w)).FirstOrDefault();
-            int max = Math.Max(1, (int)app.Cfg.D("pill.maxWindowIcons", 16));
+            var mon = app.MonitorDip();
+            double textW = textItems != null && textItems.ActualWidth > 0 ? textItems.ActualWidth : 360;
+            double availW = Math.Max(100, mon.Width - textW - 140);
+            double boxW = h - 6;
+            int maxFitting = Math.Max(1, (int)(availW / (boxW + 2)));
+            int max = maxFitting;
+            if (app.Cfg.Get("pill.maxWindowIcons") != null) { int cfgMax = (int)app.Cfg.D("pill.maxWindowIcons", 999); if (cfgMax > 0 && cfgMax < max) max = cfgMax; }
+            if (max > maxFitting) max = maxFitting;
+
             var shown = orderedItems.Take(max).ToList();
+            overflowDockItems.Clear();
+            if (orderedItems.Count > max)
+            {
+                overflowDockItems.AddRange(orderedItems.Skip(max));
+            }
 
             string sig = string.Join("|", shown.Select(x => x.Key + ":" + x.Windows.Count + (x.Icon != null ? "1" : "0"))) + "#" + fgKey;
             bool any = shown.Count > 0;
@@ -4907,6 +4972,7 @@ namespace WinDock
                 }
 
                 var b = new Btn(cell, Brushes.Transparent, Th.Hover, box / 3, new Thickness(0)) { Margin = new Thickness(1, 0, 1, 0) };
+                b.Tag = it.Key;
 
                 var itemKey = it.Key;
                 b.PreviewMouseLeftButtonDown += (s, e) =>
@@ -4935,23 +5001,12 @@ namespace WinDock
                                 Point pt = ch.TranslatePoint(new Point(0, 0), winSp);
                                 if (curP.X >= pt.X && curP.X <= pt.X + ch.ActualWidth)
                                 {
-                                    if (ci < shown.Count)
+                                    int oldIdx = winSp.Children.IndexOf(b);
+                                    if (oldIdx != ci && oldIdx >= 0)
                                     {
-                                        string targetKey = shown[ci].Key;
-                                        if (targetKey != appDragKey)
-                                        {
-                                            int oldIdx = order.IndexOf(appDragKey);
-                                            int newIdx = order.IndexOf(targetKey);
-                                            if (oldIdx >= 0 && newIdx >= 0)
-                                            {
-                                                order.RemoveAt(oldIdx);
-                                                order.Insert(newIdx, appDragKey);
-                                                app.Store.Set("pillAppOrder", order);
-                                                winSig = "";
-                                                RefreshWindows();
-                                                break;
-                                            }
-                                        }
+                                        winSp.Children.Remove(b);
+                                        winSp.Children.Insert(ci, b);
+                                        break;
                                     }
                                 }
                             }
@@ -4966,6 +5021,25 @@ namespace WinDock
                         appIsDragging = false;
                         appDragKey = null;
                         e.Handled = true;
+
+                        var newOrder = new List<string>();
+                        foreach (UIElement child in winSp.Children)
+                        {
+                            var btnChild = child as Btn;
+                            if (btnChild != null && btnChild.Tag is string)
+                            {
+                                newOrder.Add((string)btnChild.Tag);
+                            }
+                        }
+                        foreach (var k in order)
+                        {
+                            if (!newOrder.Contains(k)) newOrder.Add(k);
+                        }
+                        order.Clear();
+                        order.AddRange(newOrder);
+                        app.Store.Set("pillAppOrder", order);
+                        winSig = "";
+                        RefreshWindowsSoon();
                     }
                     else
                     {
@@ -8960,6 +9034,28 @@ namespace WinDock
                 AddJump(items, first.Path);
                 string p = first.Path;
                 items.Add(MI.Item(first.Name + Loc.Tr(" starten"), "", () => { app.ClosePanel(); Start(new ProcessStartInfo(p) { UseShellExecute = true }); }));
+
+                var ae = app.Apps.Find(first.Path) ?? app.Apps.All.FirstOrDefault(a => string.Equals(a.Target, first.Path, StringComparison.OrdinalIgnoreCase));
+                string pinKey = ae != null ? ae.Parse : first.Path;
+                var pinnedList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                bool isPinned = pinnedList.Contains(pinKey) || pinnedList.Contains(first.Path) || (ae != null && pinnedList.Contains(ae.Parse));
+                items.Add(MI.Item(isPinned ? Loc.Tr("Von Pille lösen") : Loc.Tr("An Pille anheften"), isPinned ? "\uE77A" : "\uE718", () =>
+                {
+                    var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                    if (isPinned)
+                    {
+                        pl.Remove(pinKey);
+                        pl.Remove(first.Path);
+                        if (ae != null) pl.Remove(ae.Parse);
+                    }
+                    else
+                    {
+                        if (!pl.Contains(pinKey)) pl.Add(pinKey);
+                    }
+                    app.Store.Set("pill.pinned", pl);
+                    if (app.Pill != null) app.Pill.RefreshWindowsSoon();
+                    if (after != null) after();
+                }));
             }
             if (ws.Count > 1)
             {
@@ -11498,6 +11594,279 @@ namespace WinDock
         {
             int idx = rows.Count;
             var row = new Border { Child = content, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 7, 6, 7), Background = Brushes.Transparent, Cursor = Cursors.Hand };
+            row.MouseEnter += (s, e) => SetSel(idx);
+            row.MouseLeftButtonUp += (s, e) => { click(); e.Handled = true; };
+            rows.Add(row); rowKeys.Add(click);
+            sp.Children.Add(row);
+        }
+
+        void SetSel(int i)
+        {
+            if (rows.Count == 0) return;
+            if (sel >= 0 && sel < rows.Count) rows[sel].Background = Brushes.Transparent;
+            sel = Math.Max(0, Math.Min(rows.Count - 1, i));
+            rows[sel].Background = Th.Hover;
+            rows[sel].BringIntoView();
+        }
+
+        void OnKey(object s, KeyEventArgs e)
+        {
+            var k = e.Key == Key.System ? e.SystemKey : e.Key;
+            switch (k)
+            {
+                case Key.Escape: CloseFlyout(); e.Handled = true; return;
+                case Key.Down: SetSel(sel + 1 >= rows.Count ? 0 : sel + 1); e.Handled = true; return;
+                case Key.Up: SetSel(sel <= 0 ? rows.Count - 1 : sel - 1); e.Handled = true; return;
+                case Key.Enter: case Key.Space: if (sel >= 0 && sel < rowKeys.Count) rowKeys[sel](); e.Handled = true; return;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    //  Infobereich / System-Tray & Overflow-Apps Flyout
+    // -----------------------------------------------------------------
+    public class TrayFlyout : Window
+    {
+        public static TrayFlyout Current;
+
+        readonly WinDockApp app;
+        readonly Rect anchor;
+        readonly List<DockAppItem> overflowApps;
+        readonly StackPanel sp = new StackPanel { MinWidth = 330, MaxWidth = 380 };
+        readonly List<Border> rows = new List<Border>();
+        readonly List<Action> rowKeys = new List<Action>();
+        int sel = -1;
+        bool closing;
+        DateTime openedAt;
+        OutsideClick outside;
+        Action<IntPtr> fgHandler;
+        IntPtr hwnd;
+
+        public TrayFlyout(WinDockApp a, Rect anchorScreen, List<DockAppItem> extraApps)
+        {
+            app = a; anchor = anchorScreen;
+            overflowApps = extraApps ?? new List<DockAppItem>();
+            WindowStyle = WindowStyle.None; AllowsTransparency = true; Background = Brushes.Transparent;
+            Topmost = true; ShowInTaskbar = false; ResizeMode = ResizeMode.NoResize; SizeToContent = SizeToContent.WidthAndHeight;
+            Title = "WinDock Tray & Overflow";
+            UseLayoutRounding = true; FontFamily = Th.Font;
+            TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+            Content = new Border
+            {
+                Background = Th.Bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(12), Margin = new Thickness(16),
+                LayoutTransform = new ScaleTransform(Th.K, Th.K),
+                Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, MaxHeight = 520, Focusable = false },
+                Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
+            };
+            SourceInitialized += (s, e) => { hwnd = new WindowInteropHelper(this).Handle; N.AddExStyle(hwnd, 0x80); };
+            PreviewKeyDown += OnKey;
+            outside = new OutsideClick(() => CloseFlyout(), root => root == hwnd);
+            fgHandler = hw =>
+            {
+                if (closing || (DateTime.Now - openedAt).TotalMilliseconds < 600 || hw == IntPtr.Zero) return;
+                uint pid; N.GetWindowThreadProcessId(hw, out pid);
+                if (pid != (uint)Process.GetCurrentProcess().Id) CloseFlyout();
+            };
+            Build();
+        }
+
+        public static void Toggle(WinDockApp a, Rect anchorScreen, List<DockAppItem> extraApps)
+        {
+            if (Current != null) { Current.CloseFlyout(); return; }
+            if (AudioFlyout.Current != null) AudioFlyout.Current.CloseFlyout();
+            if (WifiFlyout.Current != null) WifiFlyout.Current.CloseFlyout();
+            if (BluetoothFlyout.Current != null) BluetoothFlyout.Current.CloseFlyout();
+            if (MenuWindow.Current != null) MenuWindow.Current.CloseMenu();
+            var f = new TrayFlyout(a, anchorScreen, extraApps);
+            Current = f;
+            f.Open();
+        }
+
+        void Open()
+        {
+            Left = -10000; Top = -10000;
+            Show();
+            UpdateLayout();
+            var mon = app.MonitorDip();
+            double k = Th.K;
+            double x = Math.Max(mon.Left + 4, Math.Min(anchor.X + anchor.Width - ActualWidth + 8 * k, mon.Right - ActualWidth - 4));
+            bool below = anchor.Y + anchor.Height / 2 < mon.Top + mon.Height / 2;
+            double y = below ? anchor.Bottom - 8 * k : anchor.Top - ActualHeight + 8 * k;
+            Left = x; Top = Math.Max(mon.Top, Math.Min(y, mon.Bottom - ActualHeight));
+            N.SetWindowPos(hwnd, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            Activate();
+            N.ForceForeground(hwnd);
+            Focus();
+            openedAt = DateTime.Now;
+            outside.Start();
+            WinDockApp.ForegroundChanged += fgHandler;
+            if (rows.Count > 0) SetSel(0);
+        }
+
+        public void CloseFlyout()
+        {
+            if (closing) return;
+            closing = true;
+            WinDockApp.ForegroundChanged -= fgHandler;
+            outside.Stop();
+            Current = null;
+            Close();
+        }
+
+        void Build()
+        {
+            sp.Children.Clear(); rows.Clear(); rowKeys.Clear();
+
+            // 1. Extra / Overflow Apps
+            if (overflowApps.Count > 0)
+            {
+                sp.Children.Add(Head(Loc.Tr("Weitere Apps") + " (" + overflowApps.Count + ")"));
+                var appsWrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 4, 8) };
+                foreach (var appItem in overflowApps)
+                {
+                    var it = appItem;
+                    var cell = new Grid { Width = 34, Height = 34 };
+                    UIElement icon = it.Icon != null ? (UIElement)new Image { Source = it.Icon, Width = 20, Height = 20 } : U.Letter(it.Name, 20);
+                    ((FrameworkElement)icon).HorizontalAlignment = HorizontalAlignment.Center;
+                    ((FrameworkElement)icon).VerticalAlignment = VerticalAlignment.Center;
+                    cell.Children.Add(icon);
+
+                    if (it.Windows.Count > 0)
+                    {
+                        cell.Children.Add(new Border
+                        {
+                            Width = 6, Height = 3, CornerRadius = new CornerRadius(1.5),
+                            Background = Th.Accent, VerticalAlignment = VerticalAlignment.Bottom,
+                            HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 1)
+                        });
+                    }
+
+                    var b = new Btn(cell, Brushes.Transparent, Th.Hover, 11, new Thickness(0)) { Margin = new Thickness(2) };
+                    b.ToolTip = it.Name + (it.Windows.Count > 0 ? " (" + it.Windows.Count + ")" : "");
+                    b.Click += () =>
+                    {
+                        CloseFlyout();
+                        if (it.Windows.Count > 0) WinList.Activate(it.Windows[0].H);
+                        else if (it.App != null) AppIndex.Launch(it.App);
+                        else if (!string.IsNullOrEmpty(it.Parse)) try { Process.Start(it.Parse); } catch { }
+                    };
+                    b.MouseRightButtonUp += (s, e) =>
+                    {
+                        CloseFlyout();
+                        if (it.Windows.Count > 0)
+                        {
+                            new MenuWindow(app, AppMenus.ForWindows(app, it.Windows, () => app.Pill.RefreshWindowsSoon()), app.Pill.MenuAnchor(new Point(anchor.X, anchor.Y))).Open();
+                        }
+                    };
+                    appsWrap.Children.Add(b);
+                }
+                sp.Children.Add(appsWrap);
+                sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(6, 4, 6, 8) });
+            }
+
+            // 2. System-Tray & Schnelleinstellungen
+            sp.Children.Add(Head(Loc.Tr("Infobereich & Schnelleinstellungen")));
+
+            // Wi-Fi
+            WifiState.UpdateIfNeeded();
+            string wifiTitle = WifiState.Connected ? "Wi-Fi: " + WifiState.Ssid : "Wi-Fi";
+            string wifiSub = WifiState.Connected ? (WifiState.SignalPercent >= 0 ? WifiState.SignalPercent + "% · " + Loc.Tr("Verbunden") : Loc.Tr("Verbunden")) : Loc.Tr("Nicht verbunden");
+            AddRow(WifiState.Glyph, wifiTitle, wifiSub, () =>
+            {
+                CloseFlyout();
+                WifiFlyout.Toggle(app, anchor);
+            });
+
+            // Bluetooth
+            bool btOn = N.IsBluetoothOn();
+            AddRow("\uE702", "Bluetooth", btOn ? Loc.Tr("Aktiv · Klicken für Geräte") : Loc.Tr("Aus"), () =>
+            {
+                CloseFlyout();
+                BluetoothFlyout.Toggle(app, anchor);
+            });
+
+            // Sound
+            int vol = (int)Math.Round(Audio.Get() * 100);
+            AddRow("\uE767", Loc.Tr("Sound & Lautstärke"), vol + "%", () =>
+            {
+                CloseFlyout();
+                AudioFlyout.Toggle(app, anchor);
+            });
+
+            // Battery
+            if (BatteryStatus.HasBattery)
+            {
+                int pct = BatteryStatus.Percent;
+                bool chg = BatteryStatus.IsCharging;
+                bool saver = BatteryStatus.IsBatterySaver;
+                string batSub = pct + "% · " + (chg ? Loc.Tr("Netzbetrieb") : saver ? Loc.Tr("Stromsparmodus") : Loc.Tr("Akkubetrieb"));
+                AddRow(BatteryStatus.Glyph(pct, chg), Loc.Tr("Akku"), batSub, () =>
+                {
+                    CloseFlyout();
+                    AppIndex.Open("ms-settings:batterysaver");
+                });
+            }
+
+            // Do Not Disturb
+            bool dnd = DndControl.IsDnd();
+            AddRow("\uE708", Loc.Tr("Nicht stören"), dnd ? Loc.Tr("An") : Loc.Tr("Aus"), () =>
+            {
+                DndControl.Toggle();
+                if (app.Pill != null) app.Pill.Refresh();
+                CloseFlyout();
+            });
+
+            // Keep Awake
+            bool awake = ControlsTab.IsAwakeActive;
+            AddRow("\uE7B3", Loc.Tr("Wach bleiben"), awake ? Loc.Tr("An") : Loc.Tr("Aus"), () =>
+            {
+                ControlsTab.ToggleKeepAwakeStatic();
+                if (app.Pill != null) app.Pill.Refresh();
+                CloseFlyout();
+            });
+
+            // Windows-Benachrichtigungscenter
+            AddRow("\uEA8F", Loc.Tr("Benachrichtigungscenter"), "Win+N", () =>
+            {
+                CloseFlyout();
+                N.OpenNotificationCenter();
+            });
+
+            // Windows-Taskleiste umschalten
+            AddRow("\uE75B", app.TaskbarHidden ? Loc.Tr("Windows-Taskleiste zeigen") : Loc.Tr("Windows-Taskleiste ausblenden"), Loc.Tr("Umschalten"), () =>
+            {
+                app.ToggleWindowsTaskbar();
+                CloseFlyout();
+            });
+        }
+
+        TextBlock Head(string t)
+        {
+            var h = U.T(t.ToUpper(Th.Cul), 10.5, Th.Muted, FontWeights.Bold);
+            h.Margin = new Thickness(10, sp.Children.Count == 0 ? 4 : 10, 10, 6);
+            return h;
+        }
+
+        void AddRow(string glyph, string title, string subtitle, Action click)
+        {
+            int idx = rows.Count;
+            var g = U.G(null, new[] { U.Px(32), U.Star(1), U.Auto });
+            U.Put(g, U.I(glyph, 15, Th.Text), 0, 0);
+
+            var spText = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            var t = U.T(title, 13, Th.Text, FontWeights.SemiBold);
+            t.MaxWidth = 230;
+            spText.Children.Add(t);
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var s = U.T(subtitle, 11, Th.Muted);
+                s.Margin = new Thickness(0, 1, 0, 0);
+                spText.Children.Add(s);
+            }
+            U.Put(g, spText, 0, 1);
+            U.Put(g, U.I("\uE76C", 11, Th.Muted), 0, 2);
+
+            var row = new Border { Child = g, CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 6, 8, 6), Background = Brushes.Transparent, Cursor = Cursors.Hand };
             row.MouseEnter += (s, e) => SetSel(idx);
             row.MouseLeftButtonUp += (s, e) => { click(); e.Handled = true; };
             rows.Add(row); rowKeys.Add(click);
