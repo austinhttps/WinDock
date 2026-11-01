@@ -2643,6 +2643,53 @@ namespace Nook
     // -----------------------------------------------------------------
     //  Anwendung
     // -----------------------------------------------------------------
+    // Windows 10/11 Kamera- und Mikrofon-Aktivität überwachen
+    public static class SensorMonitor
+    {
+        const string BasePath = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\";
+
+        public static bool IsInUse(string capability)
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(BasePath + capability))
+                {
+                    if (k == null) return false;
+                    return ScanKey(k);
+                }
+            }
+            catch { return false; }
+        }
+
+        static bool ScanKey(RegistryKey key)
+        {
+            var start = key.GetValue("LastUsedTimeStart");
+            var stop = key.GetValue("LastUsedTimeStop");
+            if (start != null && stop != null)
+            {
+                try
+                {
+                    long tStart = Convert.ToInt64(start);
+                    long tStop = Convert.ToInt64(stop);
+                    if (tStop == 0 || tStart > tStop) return true;
+                }
+                catch { }
+            }
+            foreach (var subName in key.GetSubKeyNames())
+            {
+                try
+                {
+                    using (var sub = key.OpenSubKey(subName))
+                    {
+                        if (sub != null && ScanKey(sub)) return true;
+                    }
+                }
+                catch { }
+            }
+            return false;
+        }
+    }
+
     public class NookApp : Application
     {
         public static event Action<IntPtr> ForegroundChanged;
@@ -2658,7 +2705,7 @@ namespace Nook
         public AppIndex Apps;
         public readonly Countdown Timer = new Countdown();
         public IntPtr PrevForeground;
-        public bool FullscreenActive, MicMuted;
+        public bool FullscreenActive, MicMuted, MicInUse, CamInUse;
         public string BaseDir, DataDir;
 
         KeyHook hook;
@@ -2854,6 +2901,8 @@ namespace Nook
             ApplyWorkArea();
             Pill.KeepTopmost();
             if (Cfg.B("pill.showMicMuted", true)) MicMuted = Audio.MicMuted();
+            MicInUse = SensorMonitor.IsInUse("microphone");
+            CamInUse = SensorMonitor.IsInUse("webcam");
             if (Timer.CheckFinished())
             {
                 System.Media.SystemSounds.Exclamation.Play();
@@ -3400,7 +3449,7 @@ namespace Nook
         readonly StackPanel mediaSp, timerSp, winSp;
         StackPanel textItems;
         bool winFirst;
-        readonly Btn micBtn;
+        readonly Btn micBtn, camBtn;
         const double M = 18;
         readonly double h;
         string flashText;
@@ -3458,14 +3507,26 @@ namespace Nook
             winSep = new Border { Width = 1, Height = h * 0.45, Background = Th.Faint, Margin = new Thickness(12, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
             winSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
 
-            // Mikrofon stumm: rotes Symbol, Klick schaltet das Mikro wieder ein
+            // Mikrofon & Kamera Status-Symbole (in Benutzung / stumm)
             micBtn = new Btn(U.I("\uE720", fs, Th.B(Color.FromRgb(240, 90, 80))), Th.B(Color.FromArgb(40, 240, 90, 80)), Th.B(Color.FromArgb(70, 240, 90, 80)), (h - 10) / 2, new Thickness(7, 3, 7, 3));
             micBtn.Visibility = Visibility.Collapsed;
-            micBtn.ToolTip = Loc.Tr("Mikrofon stumm – klicken zum Einschalten");
-            micBtn.Click += () => { Audio.SetMicMuted(false); app.MicMuted = false; Refresh(); };
+            micBtn.ToolTip = Loc.Tr("Mikrofon");
+            micBtn.Click += () => { if (app.MicMuted) { Audio.SetMicMuted(false); app.MicMuted = false; Refresh(); } };
             micBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
+
+            camBtn = new Btn(U.I("\uE722", fs, Th.B(Color.FromRgb(255, 170, 40))), Th.B(Color.FromArgb(40, 255, 170, 40)), Th.B(Color.FromArgb(70, 255, 170, 40)), (h - 10) / 2, new Thickness(7, 3, 7, 3));
+            camBtn.Visibility = Visibility.Collapsed;
+            camBtn.ToolTip = Loc.Tr("Kamera aktiv");
+            camBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
+
+            var sensorSp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            sensorSp.Children.Add(micBtn);
+            var camMargin = new Thickness(4, 0, 0, 0);
+            camBtn.Margin = camMargin;
+            sensorSp.Children.Add(camBtn);
+
             // Inhalte in der eingestellten Reihenfolge
-            var pItems = new Dictionary<string, UIElement> { { "mic", micBtn }, { "clock", clock }, { "date", date }, { "timer", timerSp }, { "media", mediaSp } };
+            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "clock", clock }, { "date", date }, { "timer", timerSp }, { "media", mediaSp } };
             var pOrder = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
             foreach (var id in new[] { "mic", "clock", "date", "timer", "media", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
             winFirst = pOrder.IndexOf("windows") == 0;
@@ -3615,7 +3676,30 @@ namespace Nook
         {
             var c = app.Cfg;
             var now = DateTime.Now;
-            micBtn.Visibility = app.MicMuted && c.B("pill.showMicMuted", true) ? Visibility.Visible : Visibility.Collapsed;
+            bool showMicMuted = c.B("pill.showMicMuted", true);
+            bool showSensors = c.B("pill.showActiveSensors", true);
+            if (app.MicInUse && showSensors)
+            {
+                micBtn.Visibility = Visibility.Visible;
+                var ic = micBtn.Child as TextBlock;
+                if (ic != null) { ic.Text = "\uE720"; ic.Foreground = Th.B(Color.FromRgb(255, 170, 40)); }
+                micBtn.SetColors(Th.B(Color.FromArgb(40, 255, 170, 40)), Th.B(Color.FromArgb(70, 255, 170, 40)));
+                micBtn.ToolTip = Loc.Tr("Mikrofon wird verwendet");
+            }
+            else if (app.MicMuted && showMicMuted)
+            {
+                micBtn.Visibility = Visibility.Visible;
+                var ic = micBtn.Child as TextBlock;
+                if (ic != null) { ic.Text = "\uE720"; ic.Foreground = Th.B(Color.FromRgb(240, 90, 80)); }
+                micBtn.SetColors(Th.B(Color.FromArgb(40, 240, 90, 80)), Th.B(Color.FromArgb(70, 240, 90, 80)));
+                micBtn.ToolTip = Loc.Tr("Mikrofon stumm – klicken zum Einschalten");
+            }
+            else
+            {
+                micBtn.Visibility = Visibility.Collapsed;
+            }
+
+            camBtn.Visibility = app.CamInUse && showSensors ? Visibility.Visible : Visibility.Collapsed;
             clock.Visibility = c.B("pill.showClock", true) ? Visibility.Visible : Visibility.Collapsed;
             bool sec = c.B("pill.clockSeconds", false);
             clock.Text = now.ToString(c.B("pill.clock24h", true) ? (sec ? "HH:mm:ss" : "HH:mm") : (sec ? "h:mm:ss tt" : "h:mm tt"), Th.Cul);
