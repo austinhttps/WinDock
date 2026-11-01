@@ -4934,7 +4934,15 @@ namespace WinDock
                     string firstWFile = !string.IsNullOrEmpty(firstW.Path) ? System.IO.Path.GetFileName(firstW.Path) : "";
                     string firstWNoExt = !string.IsNullOrEmpty(firstW.Path) ? System.IO.Path.GetFileNameWithoutExtension(firstW.Path) : "";
 
-                    bool isMatch = string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
+                    bool isExplorerMatch = (string.Equals(star, "Microsoft.Windows.Explorer", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(star, "explorer.exe", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(star, "explorer", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(starNoExt, "explorer", StringComparison.OrdinalIgnoreCase) ||
+                                            (ae != null && ae.Name != null && ae.Name.IndexOf("Explorer", StringComparison.OrdinalIgnoreCase) >= 0)) &&
+                                           (!string.IsNullOrEmpty(firstWFile) && firstWFile.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase));
+
+                    bool isMatch = isExplorerMatch ||
+                                   string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
                                    string.Equals(firstW.Path, star, StringComparison.OrdinalIgnoreCase) ||
                                    (!string.IsNullOrEmpty(firstWFile) && (string.Equals(firstWFile, starFile, StringComparison.OrdinalIgnoreCase) || string.Equals(firstWNoExt, starNoExt, StringComparison.OrdinalIgnoreCase))) ||
                                    (ae != null && (string.Equals(firstW.Path, ae.Target, StringComparison.OrdinalIgnoreCase) ||
@@ -5174,6 +5182,11 @@ namespace WinDock
                     else if (curItem.App != null)
                     {
                         AppIndex.Launch(curItem.App);
+                        RefreshWindowsSoon();
+                    }
+                    else if (string.Equals(curItem.Parse, "Microsoft.Windows.Explorer", StringComparison.OrdinalIgnoreCase))
+                    {
+                        try { Process.Start("explorer.exe"); } catch { }
                         RefreshWindowsSoon();
                     }
                     else if (!string.IsNullOrEmpty(curItem.Parse))
