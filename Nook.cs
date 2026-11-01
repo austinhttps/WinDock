@@ -3427,7 +3427,21 @@ namespace Nook
             }
             if (Timer.CheckFinished())
             {
-                System.Media.SystemSounds.Exclamation.Play();
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try
+                    {
+                        Console.Beep(880, 200);
+                        Thread.Sleep(80);
+                        Console.Beep(880, 200);
+                        Thread.Sleep(80);
+                        Console.Beep(1175, 450);
+                    }
+                    catch
+                    {
+                        try { System.Media.SystemSounds.Exclamation.Play(); } catch { }
+                    }
+                });
                 Pill.Flash(Loc.Tr("Timer abgelaufen"), 0, true);
             }
             Pill.Refresh();
@@ -6536,7 +6550,7 @@ namespace Nook
 
             // Timer: oben Ring + Stunden/Minuten, darunter Vorgaben, unten Start + Zurücksetzen
             var tg = U.G(new[] { U.Auto, U.Px(10), U.Auto, U.Px(10), U.Auto }, null);
-            tg.VerticalAlignment = VerticalAlignment.Center;
+            tg.VerticalAlignment = VerticalAlignment.Top;
             var top = U.G(null, new[] { U.Px(RingD), U.Px(14), U.Star(1) });
             var ringG = new Grid { Width = RingD, Height = RingD, VerticalAlignment = VerticalAlignment.Center };
             ringG.Children.Add(new System.Windows.Shapes.Ellipse { Stroke = Th.Surface2, StrokeThickness = RingT });
