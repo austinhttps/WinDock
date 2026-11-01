@@ -6992,7 +6992,7 @@ namespace Nook
 
         public void Add(UIElement e) { Panel.Children.Add(e); }
 
-        public int AddRow(Btn b, Action act, Brush bg)
+        public int AddItem(Btn b, Action act, Brush bg)
         {
             int idx = rows.Count;
             rows.Add(b); acts.Add(act); normal.Add(bg);
@@ -7008,6 +7008,12 @@ namespace Nook
                 }
                 e.Handled = true;
             };
+            return idx;
+        }
+
+        public int AddRow(Btn b, Action act, Brush bg)
+        {
+            int idx = AddItem(b, act, bg);
             Panel.Children.Add(b);
             return idx;
         }
@@ -7197,7 +7203,7 @@ namespace Nook
             if (q.Length == 0)
             {
                 var fav = App.Cfg.B("apps.showFavorites", true) ? all.Where(a => starred.Contains(a.Parse)).ToList() : new List<AppEntry>();
-                if (fav.Count > 0) { list.Add(U.Section(Loc.Tr("Favoriten"))); foreach (var a in fav) AddApp(a); }
+                if (fav.Count > 0) { list.Add(U.Section(Loc.Tr("Favoriten"))); AddFavBoxes(fav); }
                 int recN = Math.Max(0, Math.Min(15, (int)App.Cfg.D("apps.recentCount", 5)));
                 var rec = App.Store.Strs("recent").Select(p => App.Apps.Find(p)).Where(a => a != null && !fav.Contains(a)).Take(recN).ToList();
                 if (rec.Count > 0) { list.Add(U.Section(Loc.Tr("Zuletzt"))); foreach (var a in rec) AddApp(a); }
@@ -7224,6 +7230,55 @@ namespace Nook
         {
             int end = Math.Min(pending.Count, pendingAt + Page);
             for (; pendingAt < end; pendingAt++) AddApp(pending[pendingAt]);
+        }
+
+        void AddFavBoxes(List<AppEntry> favs)
+        {
+            var wp = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 8) };
+            foreach (var a in favs)
+            {
+                var entry = a;
+                var boxSp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                var iconHost = new Border { Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 6) };
+                Action setIcon = () =>
+                {
+                    iconHost.Child = entry.Icon != null
+                        ? (UIElement)new Image { Source = entry.Icon, Width = 32, Height = 32 }
+                        : U.Letter(entry.Name, 32);
+                };
+                setIcon();
+                entry.OnIcon = setIcon;
+                entry.RequestIcon();
+                boxSp.Children.Add(iconHost);
+
+                var nameTb = new TextBlock
+                {
+                    Text = entry.Name,
+                    FontSize = 12,
+                    Foreground = Th.Text,
+                    FontWeight = FontWeights.SemiBold,
+                    FontFamily = Th.Font,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    MaxWidth = 88,
+                    Margin = new Thickness(4, 0, 4, 8)
+                };
+                boxSp.Children.Add(nameTb);
+
+                var b = new Btn(boxSp, Th.Surface2, Th.Hover, 12, new Thickness(2))
+                {
+                    Width = 98,
+                    Height = 84,
+                    Margin = new Thickness(3, 4, 3, 4),
+                    ToolTip = entry.Name
+                };
+
+                wp.Children.Add(b);
+                rowApps.Add(entry);
+                list.AddItem(b, () => Launch(entry), Th.Surface2);
+            }
+            list.Add(wp);
         }
 
         void AddApp(AppEntry a)
@@ -10365,8 +10420,18 @@ namespace Nook
                 if (c.B("apps.showFavorites", true))
                 {
                     sp.Children.Add(U.Section(Loc.Tr("Favoriten")));
-                    sp.Children.Add(row("Spotify", "Anwendung", true, first));
-                    sp.Children.Add(row("Visual Studio Code", "Anwendung", true, false));
+                    var fwp = new WrapPanel { Margin = new Thickness(0, 4, 0, 8) };
+                    Func<string, UIElement> favBox = name =>
+                    {
+                        var bsp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                        var icHost = new Border { Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 6), Child = U.Letter(name, 32) };
+                        var nameTb = new TextBlock { Text = name, FontSize = 12, Foreground = Th.Text, FontWeight = FontWeights.SemiBold, FontFamily = Th.Font, TextTrimming = TextTrimming.CharacterEllipsis, TextAlignment = TextAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 88, Margin = new Thickness(4, 0, 4, 8) };
+                        bsp.Children.Add(icHost); bsp.Children.Add(nameTb);
+                        return new Border { Width = 98, Height = 84, Background = Th.Surface2, CornerRadius = new CornerRadius(12), Child = bsp, Margin = new Thickness(3, 4, 3, 4) };
+                    };
+                    fwp.Children.Add(favBox("Spotify"));
+                    fwp.Children.Add(favBox("Visual Studio Code"));
+                    sp.Children.Add(fwp);
                     first = false;
                 }
                 int rc = (int)c.D("apps.recentCount", 5);
