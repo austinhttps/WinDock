@@ -173,7 +173,7 @@ namespace Nook
   ""panel"": { ""width"": 780, ""height"": 470, ""radius"": 24, ""borderWidth"": 0, ""shadow"": true, ""shadowStrength"": 0.45,
               ""animStyle"": ""morph"", ""animationMs"": 240, ""closeOnBlur"": true, ""startTab"": ""last"",
               ""tabStyle"": ""pill"", ""tabIcons"": ""text"", ""tabAlign"": ""center"",
-              ""showClock"": true, ""showHelpButton"": true, ""showMenuButton"": true },
+              ""showClock"": true, ""showHelpButton"": true, ""showMenuButton"": true, ""showTaskbar"": true },
   ""theme"": { ""accent"": ""#D4B266"", ""background"": ""#0B0B0C"", ""gradient"": false, ""background2"": ""#1B1A24"",
               ""surface"": ""#161618"", ""surface2"": ""#232326"", ""text"": ""#F2F2F0"", ""muted"": ""#8E8E93"",
               ""pillBackground"": ""#0B0B0C"", ""border"": """", ""opacity"": 0.98,
@@ -446,6 +446,10 @@ namespace Nook
             { "Suchleiste", "Search bar" },
             { "An Pille anheften", "Pin to pill (dock)" },
             { "Von Pille lösen", "Unpin from pill (dock)" },
+            { "Taskbar-Tab im Panel anzeigen", "Show Taskbar tab in panel" },
+            { "Taskbar-Tab anzeigen", "Show Taskbar tab" },
+            { "aus = Tab verschwindet aus dem Panel", "off = tab disappears from panel" },
+            { "Offene Fenster im Panel", "Open windows in panel" },
             { "wie im Windows-Startmenü", "like regular Windows start menu" },
             { "Stromsparmodus", "Battery saver" },
             { "Nicht stören", "Do not disturb" },
@@ -5344,6 +5348,7 @@ namespace Nook
             if (ids.Count == 0) ids = new List<string> { "apps" };
             foreach (var id in ids)
             {
+                if (id == "taskbar" && !app.Cfg.B("panel.showTaskbar", true)) continue;
                 ITab t = null;
                 switch (id)
                 {
@@ -9968,6 +9973,7 @@ namespace Nook
                 }, 190)),
                 Row(Loc.Tr("Deinstallationsprogramme ausblenden"), null, Toggle("apps.hideUninstallers", null)));
             Section("tabs", "Taskbar",
+                Row(Loc.Tr("Taskbar-Tab im Panel anzeigen"), Loc.Tr("aus = Tab verschwindet aus dem Panel"), Toggle("panel.showTaskbar", () => RebuildPreview())),
                 Row(Loc.Tr("Nach App gruppieren"), Loc.Tr("aus = einfache Liste aller Fenster"), Toggle("taskbar.group", null)));
             Section("tabs", "Zwischenablage",
                 Row(Loc.Tr("Verlauf aktiv"), null, Toggle("clipboard.enabled", null)),
@@ -10300,12 +10306,12 @@ namespace Nook
 
         FrameworkElement MockPanel(Cfg c, double pw, double ph)
         {
-            var tabs = Json.Seq(c.Get("tabs")).Select(x => Convert.ToString(x)).ToList();
+            var tabs = Json.Seq(c.Get("tabs")).Select(x => Convert.ToString(x)).Where(x => x != "taskbar" || c.B("panel.showTaskbar", true)).ToList();
             if (!tabs.Contains(pvTab)) pvTab = tabs.Contains("controls") ? "controls" : (tabs.FirstOrDefault() ?? "controls");
             var g = U.G(new[] { U.Auto, U.Star(1) }, null);
             bool tabsLeft = c.S("panel.tabAlign", "center") == "left";
             var bar = tabsLeft ? U.G(null, new[] { U.Auto, U.Star(1), U.Auto }) : U.G(null, new[] { U.Star(1), U.Auto, U.Star(1) });
-            bar.Margin = new Thickness(22, 16, 18, 14);
+            bar.Margin = new Thickness(18, 16, 18, 14);
             var tsp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = tabsLeft ? HorizontalAlignment.Left : HorizontalAlignment.Center };
             if (tabsLeft) tsp.Margin = new Thickness(14, 0, 0, 0);
             foreach (var t in tabs)
