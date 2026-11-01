@@ -1,4 +1,4 @@
-﻿// =====================================================================
+// =====================================================================
 //  Nook – schlanker Taskleisten-Ersatz für Windows 11
 //  Eine einzige Quelldatei. Bauen mit build.bat (nutzt den C#-Compiler,
 //  der in Windows bereits enthalten ist – keine Installation nötig).
@@ -2471,19 +2471,32 @@ namespace Nook
         public void Load()
         {
             if (!persist || !File.Exists(path)) return;
-            try
+            ThreadPool.QueueUserWorkItem(_ =>
             {
-                foreach (var o in Json.Seq(Json.Parse(File.ReadAllText(path, Encoding.UTF8))))
+                var list = new List<ClipItem>();
+                try
                 {
-                    var d = o as Dictionary<string, object>;
-                    if (d == null || !d.ContainsKey("t")) continue;
-                    long ticks = 0;
-                    object tv; if (d.TryGetValue("time", out tv)) long.TryParse(Convert.ToString(tv), out ticks);
-                    object pv; bool pinned = d.TryGetValue("pinned", out pv) && pv is bool && (bool)pv;
-                    Items.Add(new ClipItem { Text = Convert.ToString(d["t"]), Time = ticks > 0 ? new DateTime(ticks) : DateTime.Now, Pinned = pinned });
+                    foreach (var o in Json.Seq(Json.Parse(File.ReadAllText(path, Encoding.UTF8))))
+                    {
+                        var d = o as Dictionary<string, object>;
+                        if (d == null || !d.ContainsKey("t")) continue;
+                        long ticks = 0;
+                        object tv; if (d.TryGetValue("time", out tv)) long.TryParse(Convert.ToString(tv), out ticks);
+                        object pv; bool pinned = d.TryGetValue("pinned", out pv) && pv is bool && (bool)pv;
+                        list.Add(new ClipItem { Text = Convert.ToString(d["t"]), Time = ticks > 0 ? new DateTime(ticks) : DateTime.Now, Pinned = pinned });
+                    }
                 }
-            }
-            catch { }
+                catch { }
+                if (Application.Current != null)
+                {
+                    Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (Items.Count == 0) Items = list;
+                        else Items.AddRange(list);
+                        Fire();
+                    }));
+                }
+            });
         }
 
         public void OnUpdate() { ReadClipboard(0); }
@@ -2888,7 +2901,7 @@ namespace Nook
         public void ClosePanel() { if (Panel != null && Panel.IsOpen) Panel.CloseAnimated(); }
 
         public void OnPanelOpened() { Pill.HideForPanel(true); }
-        public void OnPanelClosed() { Pill.HideForPanel(false); }
+        public void OnPanelClosed() { Pill.HideForPanel(false); Trim(); }
 
         public void PasteToPrevious()
         {
@@ -4132,6 +4145,42 @@ namespace Nook
         bool TypeInto(string text);
     }
 
+    public class LazyTab : ITab
+    {
+        readonly NookApp app;
+        readonly Func<ITab> factory;
+        ITab real;
+
+        public LazyTab(string id, string title, NookApp app, Func<ITab> factory)
+        {
+            Id = id;
+            Title = title;
+            this.app = app;
+            this.factory = factory;
+        }
+
+        public string Id { get; private set; }
+        public string Title { get; private set; }
+
+        public ITab Real
+        {
+            get
+            {
+                if (real == null) real = factory();
+                return real;
+            }
+        }
+
+        public FrameworkElement View { get { return Real.View; } }
+        public bool AutoHeight { get { return Real.AutoHeight; } }
+        public void Shown() { Real.Shown(); }
+        public void Hidden() { if (real != null) real.Hidden(); }
+        public void Key(KeyEventArgs e) { Real.Key(e); }
+        public void Tick() { if (real != null) real.Tick(); }
+        public void FocusMain() { Real.FocusMain(); }
+        public bool TypeInto(string text) { return Real.TypeInto(text); }
+    }
+
     public abstract class TabBase : ITab
     {
         protected readonly NookApp App;
@@ -4368,12 +4417,12 @@ namespace Nook
                 ITab t = null;
                 switch (id)
                 {
-                    case "controls": t = new ControlsTab(app); break;
-                    case "today": t = new TodayTab(app); break;
-                    case "apps": t = new AppsTab(app); break;
-                    case "taskbar": t = new TaskbarTab(app); break;
-                    case "clipboard": t = new ClipboardTab(app); break;
-                    case "power": t = new PowerTab(app); break;
+                    case "controls": t = new LazyTab("controls", Loc.Tr("Steuerung"), app, () => new ControlsTab(app)); break;
+                    case "today": t = new LazyTab("today", Loc.Tr("Heute"), app, () => new TodayTab(app)); break;
+                    case "apps": t = new LazyTab("apps", "Apps", app, () => new AppsTab(app)); break;
+                    case "taskbar": t = new LazyTab("taskbar", "Taskbar", app, () => new TaskbarTab(app)); break;
+                    case "clipboard": t = new LazyTab("clipboard", Loc.Tr("Zwischenablage"), app, () => new ClipboardTab(app)); break;
+                    case "power": t = new LazyTab("power", "Power", app, () => new PowerTab(app)); break;
                 }
                 if (t == null || tabs.Any(x => x.Id == t.Id)) continue;
                 tabs.Add(t);
