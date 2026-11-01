@@ -3596,6 +3596,17 @@ namespace Nook
     // -----------------------------------------------------------------
     //  Die Pille am Bildschirmrand
     // -----------------------------------------------------------------
+    public class DockAppItem
+    {
+        public string Key;
+        public string Parse;
+        public string Name;
+        public ImageSource Icon;
+        public List<WinItem> Windows = new List<WinItem>();
+        public AppEntry App;
+        public bool IsPinned;
+    }
+
     public class PillWindow : Window
     {
         readonly NookApp app;
@@ -3788,6 +3799,7 @@ namespace Nook
                 if (lip != null) lip.Close();
                 if (lipT != null) lipT.Stop();
             };
+            app.Apps.Loaded += () => Dispatcher.BeginInvoke(new Action(RefreshWindowsSoon));
             Refresh();
             Left = -10000; Top = -10000;
         }
@@ -3946,6 +3958,8 @@ namespace Nook
             soon.Stop(); soon.Start();
         }
 
+        readonly Dictionary<string, DockAppItem> currentItems = new Dictionary<string, DockAppItem>();
+
         public void RefreshWindows()
         {
             if (!app.Cfg.B("pill.showWindows", true))
@@ -3962,51 +3976,197 @@ namespace Nook
                 if (!groups.TryGetValue(kk, out l)) { l = new List<WinItem>(); groups[kk] = l; }
                 l.Add(w);
             }
-            order.RemoveAll(k => !groups.ContainsKey(k));
-            foreach (var w in all) if (!order.Contains(KeyOf(w))) order.Add(KeyOf(w));
+
+            var starred = app.Cfg.B("pill.showFavorites", true) ? app.Store.Strs("starred") : new List<string>();
+            var dockItems = new List<DockAppItem>();
+            var matchedRunning = new HashSet<string>();
+
+            // 1. Favoriten / Pinned Apps
+            foreach (var star in starred)
+            {
+                var item = new DockAppItem { Key = "star:" + star, Parse = star, IsPinned = true };
+                var ae = app.Apps.Find(star);
+                if (ae != null)
+                {
+                    item.App = ae;
+                    item.Name = ae.Name;
+                    ae.RequestIcon();
+                    item.Icon = ae.Icon;
+                }
+                else
+                {
+                    item.Name = System.IO.Path.GetFileNameWithoutExtension(star);
+                    try { item.Icon = N.ShellIcon(star, 48); } catch { }
+                }
+
+                string matchKey = null;
+                foreach (var kvp in groups)
+                {
+                    var firstW = kvp.Value[0];
+                    if (string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(firstW.Path, star, StringComparison.OrdinalIgnoreCase) ||
+                        (ae != null && (string.Equals(firstW.Path, ae.Target, StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(firstW.Path, ae.Parse, StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(firstW.Name, ae.Name, StringComparison.OrdinalIgnoreCase))))
+                    {
+                        matchKey = kvp.Key;
+                        break;
+                    }
+                }
+
+                if (matchKey != null)
+                {
+                    matchedRunning.Add(matchKey);
+                    item.Windows = groups[matchKey];
+                    if (item.Icon == null && item.Windows.Count > 0) item.Icon = WinList.Icon(item.Windows[0]);
+                }
+                dockItems.Add(item);
+            }
+
+            // 2. Laufende Fenster (nicht favorisiert)
+            foreach (var kvp in groups)
+            {
+                if (matchedRunning.Contains(kvp.Key)) continue;
+                dockItems.Add(new DockAppItem
+                {
+                    Key = "win:" + kvp.Key,
+                    Name = kvp.Value[0].Name,
+                    Windows = kvp.Value,
+                    IsPinned = false,
+                    Icon = WinList.Icon(kvp.Value[0])
+                });
+            }
+
+            // Sortierung nach bestehender 'order'
+            var orderedItems = new List<DockAppItem>();
+            foreach (var k in order)
+            {
+                var it = dockItems.FirstOrDefault(x => x.Key == k);
+                if (it != null) { orderedItems.Add(it); dockItems.Remove(it); }
+            }
+            orderedItems.AddRange(dockItems);
+            order.Clear();
+            order.AddRange(orderedItems.Select(x => x.Key));
 
             IntPtr fg = N.GetForegroundWindow();
             string fgKey = all.Where(w => w.H == fg).Select(w => KeyOf(w)).FirstOrDefault();
-            int max = Math.Max(1, (int)app.Cfg.D("pill.maxWindowIcons", 12));
-            var keys = order.Take(max).ToList();
-            string sig = string.Join("|", keys) + "#" + fgKey;
-            bool any = keys.Count > 0;
+            int max = Math.Max(1, (int)app.Cfg.D("pill.maxWindowIcons", 16));
+            var shown = orderedItems.Take(max).ToList();
+
+            string sig = string.Join("|", shown.Select(x => x.Key + ":" + x.Windows.Count + (x.Icon != null ? "1" : "0"))) + "#" + fgKey;
+            bool any = shown.Count > 0;
             winSep.Visibility = any && anyText ? Visibility.Visible : Visibility.Collapsed;
             winSp.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
             if (sig == winSig) return;
             winSig = sig;
             winSp.Children.Clear();
+            currentItems.Clear();
+
             double box = h - 6, ic = Math.Round(h * 0.56);
             double icfg = app.Cfg.D("pill.iconSize", 0);
             if (icfg > 0) ic = Math.Max(12, Math.Min(box - 2, icfg));
-            foreach (var key in keys)
+
+            foreach (var it in shown)
             {
-                var g = groups[key];
-                var first = g[0];
-                var src = WinList.Icon(first);
+                currentItems[it.Key] = it;
                 var cell = new Grid { Width = box, Height = box };
-                UIElement icon = src != null ? (UIElement)new Image { Source = src, Width = ic, Height = ic } : U.Letter(first.Name, ic);
+                UIElement icon = it.Icon != null ? (UIElement)new Image { Source = it.Icon, Width = ic, Height = ic } : U.Letter(it.Name, ic);
                 ((FrameworkElement)icon).HorizontalAlignment = HorizontalAlignment.Center;
                 ((FrameworkElement)icon).VerticalAlignment = VerticalAlignment.Center;
                 cell.Children.Add(icon);
-                bool active = key == fgKey;
-                cell.Children.Add(new Border
+
+                bool active = it.Windows.Any(w => w.H == fg);
+                if (it.Windows.Count > 0)
                 {
-                    Width = active ? 10 : 4, Height = 3, CornerRadius = new CornerRadius(1.5),
-                    Background = active ? Th.Accent : Th.Muted, VerticalAlignment = VerticalAlignment.Bottom,
-                    HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 1)
-                });
+                    cell.Children.Add(new Border
+                    {
+                        Width = active ? 10 : 4, Height = 3, CornerRadius = new CornerRadius(1.5),
+                        Background = active ? Th.Accent : Th.Muted, VerticalAlignment = VerticalAlignment.Bottom,
+                        HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 1)
+                    });
+                }
+
                 var b = new Btn(cell, Brushes.Transparent, Th.Hover, box / 3, new Thickness(0)) { Margin = new Thickness(1, 0, 1, 0) };
-                b.ToolTip = g.Count > 1 ? first.Name + " (" + g.Count + " Fenster)" : first.Title;
-                string gk = key;
-                b.Click += () => { HidePeek(); AppClick(gk); };
+                if (it.Windows.Count > 1) b.ToolTip = it.Name + " (" + it.Windows.Count + " " + Loc.Tr("Fenster") + ")";
+                else if (it.Windows.Count == 1) b.ToolTip = it.Windows[0].Title;
+                else b.ToolTip = it.Name + " (" + Loc.Tr("Favorit") + ")";
+
+                var curItem = it;
+                b.Click += () =>
+                {
+                    HidePeek();
+                    if (curItem.Windows.Count > 0)
+                    {
+                        var ws = curItem.Windows;
+                        IntPtr curFg = N.GetForegroundWindow();
+                        int idx = ws.FindIndex(w => w.H == curFg);
+                        if (idx < 0) WinList.Activate(ws[0].H);
+                        else if (ws.Count > 1) WinList.Activate(ws[(idx + 1) % ws.Count].H);
+                        else WinList.Minimize(curFg);
+                        RefreshWindowsSoon();
+                    }
+                    else if (curItem.App != null)
+                    {
+                        AppIndex.Launch(curItem.App);
+                        RefreshWindowsSoon();
+                    }
+                    else if (!string.IsNullOrEmpty(curItem.Parse))
+                    {
+                        try { Process.Start(curItem.Parse); } catch { }
+                        RefreshWindowsSoon();
+                    }
+                };
+
                 b.MouseUp += (s, e) =>
                 {
-                    if (e.ChangedButton == MouseButton.Middle && app.Cfg.S("pill.middleClick", "close") == "close") { var ws = Group(gk); if (ws.Count > 0) WinList.Close(ws[0].H); RefreshWindowsSoon(); e.Handled = true; }
+                    if (e.ChangedButton == MouseButton.Middle)
+                    {
+                        if (curItem.Windows.Count > 0)
+                        {
+                            WinList.Close(curItem.Windows[0].H);
+                            RefreshWindowsSoon();
+                        }
+                        else if (curItem.App != null)
+                        {
+                            AppIndex.Launch(curItem.App);
+                        }
+                        e.Handled = true;
+                    }
                 };
-                b.MouseRightButtonUp += (s, e) => { AppMenu(gk, MenuAnchor(ScreenDip(e))); e.Handled = true; };
+
+                b.MouseRightButtonUp += (s, e) =>
+                {
+                    var pt = MenuAnchor(ScreenDip(e));
+                    if (curItem.Windows.Count > 0)
+                    {
+                        AppMenu(curItem.Key, pt);
+                    }
+                    else
+                    {
+                        var mis = new List<MI>();
+                        mis.Add(MI.Item(curItem.Name + Loc.Tr(" starten"), "\uE768", () =>
+                        {
+                            if (curItem.App != null) AppIndex.Launch(curItem.App);
+                            else try { Process.Start(curItem.Parse); } catch { }
+                        }));
+                        mis.Add(MI.Sep());
+                        mis.Add(MI.Item(Loc.Tr("Von Favoriten lösen"), "\uE735", () =>
+                        {
+                            var st = app.Store.Strs("starred");
+                            st.Remove(curItem.Parse);
+                            app.Store.Set("starred", st);
+                            RefreshWindowsSoon();
+                        }));
+                        new MenuWindow(app, mis, pt).Open();
+                    }
+                    e.Handled = true;
+                };
+
                 var bb = b;
-                b.MouseEnter += (s, e) => HoverStart(gk, bb);
+                if (curItem.Windows.Count > 0)
+                {
+                    b.MouseEnter += (s, e) => HoverStart(curItem.Key, bb);
+                }
                 winSp.Children.Add(b);
             }
         }
@@ -4014,7 +4174,13 @@ namespace Nook
         // Fenster einer App zusammenfassen – oder jedes Fenster einzeln (Einstellung)
         string KeyOf(WinItem w) { return app.Cfg.B("pill.groupWindows", true) ? w.Key : "hwnd:" + w.H.ToInt64(); }
 
-        List<WinItem> Group(string key) { return WinList.Get().Where(w => KeyOf(w) == key).ToList(); }
+        List<WinItem> Group(string key)
+        {
+            DockAppItem it;
+            if (currentItems.TryGetValue(key, out it) && it.Windows != null) return it.Windows;
+            string rawKey = key.StartsWith("win:") ? key.Substring(4) : (key.StartsWith("star:") ? key.Substring(5) : key);
+            return WinList.Get().Where(w => KeyOf(w) == rawKey || string.Equals(w.Path, rawKey, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
 
         void AppClick(string key)
         {
