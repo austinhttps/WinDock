@@ -180,7 +180,7 @@ namespace Nook
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
-  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"" ], ""showVolume"": true, ""showMedia"": true },
+  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"" ], ""showVolume"": true, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
@@ -438,6 +438,8 @@ namespace Nook
             { "Sperren", "Lock" },
             { "Ruhezustand", "Hibernate" },
             { "Wach bleiben", "Keep awake" },
+            { "Übertragen", "Cast" },
+            { "Verbinden", "Connect" },
             { "Energie sparen", "Sleep" },
             { "Abmelden", "Sign out" },
             { "Neu starten", "Restart" },
@@ -5528,7 +5530,7 @@ namespace Nook
         public override string Id { get { return "controls"; } }
         public override string Title { get { return Loc.Tr("Steuerung"); } }
 
-        readonly Tile wifi, bt, audio, night, dark, mic, awake;
+        readonly Tile wifi, bt, audio, night, dark, mic, awake, cast;
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
@@ -5558,6 +5560,8 @@ namespace Nook
             mic = new Tile("\uE720", "Mikrofon", false);
             awake = new Tile("\uE7B3", Loc.Tr("Wach bleiben"), false);
             awake.Click += ToggleAwake;
+            cast = new Tile("\uEC15", Loc.Tr("Übertragen"), true);
+            cast.Click += OpenCast;
             wifi.Click += () => Settings("ms-settings:network-wifi");
             bt.Click += () => Settings("ms-settings:bluetooth");
             audio.Click += OpenAudio;
@@ -5572,7 +5576,8 @@ namespace Nook
                 { "night", new KeyValuePair<Tile, Action>(night, () => Settings("ms-settings:nightlight")) },
                 { "dark", new KeyValuePair<Tile, Action>(dark, ToggleDark) },
                 { "mic", new KeyValuePair<Tile, Action>(mic, ToggleMic) },
-                { "awake", new KeyValuePair<Tile, Action>(awake, ToggleAwake) }
+                { "awake", new KeyValuePair<Tile, Action>(awake, ToggleAwake) },
+                { "cast", new KeyValuePair<Tile, Action>(cast, OpenCast) }
             };
             // Kacheln in der eingestellten Reihenfolge, je 3 pro Reihe
             var ids = app.Cfg.L("controls.tiles").Select(x => Convert.ToString(x)).Where(all.ContainsKey).Distinct().ToList();
@@ -5667,6 +5672,16 @@ namespace Nook
         readonly Action playToggle;
 
         // Audio-Fenster: Ausgabegerät + Lautstärke pro App
+        void OpenCast()
+        {
+            App.ClosePanel();
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Thread.Sleep(50);
+                N.SendWin(0x4B); // Win + K
+            });
+        }
+
         void OpenAudio()
         {
             try
@@ -5759,6 +5774,7 @@ namespace Nook
             audio.Set(true, Audio.DeviceName());
             RefreshMic();
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
+            cast.Set(false, Loc.Tr("Verbinden"));
             bool d = IsDark();
             dark.Set(d, d ? Loc.Tr("An") : Loc.Tr("Aus"));
             night.Set(false, Loc.Tr("Einstellungen"));
@@ -8824,7 +8840,7 @@ namespace Nook
             return new[]
             {
                 new[] { "wifi", Loc.Tr("WLAN"), "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
-                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }
+                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }
             };
         }
 
@@ -9419,7 +9435,7 @@ namespace Nook
                 var subs = new Dictionary<string, string[]>
                 {
                     { "wifi", new[] { "1", Loc.Tr("Zuhause 5G") } }, { "bluetooth", new[] { "0", Loc.Tr("Einstellungen") } }, { "audio", new[] { "1", Loc.Tr("Lautsprecher") } },
-                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }
+                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }
                 };
                 var rowsDef = new List<GridLength>();
                 int tileRows = (ids.Count + 2) / 3;
