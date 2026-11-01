@@ -3634,6 +3634,9 @@ namespace Nook
         readonly List<string> order = new List<string>();
         string winSig = "";
         DispatcherTimer soon;
+        string appDragKey;
+        Point appDragStart;
+        bool appIsDragging;
 
         public PillWindow(NookApp a)
         {
@@ -3799,6 +3802,8 @@ namespace Nook
                 if (lip != null) lip.Close();
                 if (lipT != null) lipT.Stop();
             };
+            var savedOrder = app.Store.Strs("pillAppOrder");
+            if (savedOrder != null && savedOrder.Count > 0) order.AddRange(savedOrder);
             app.Apps.Loaded += () => Dispatcher.BeginInvoke(new Action(RefreshWindowsSoon));
             Refresh();
             Left = -10000; Top = -10000;
@@ -4087,6 +4092,71 @@ namespace Nook
                 }
 
                 var b = new Btn(cell, Brushes.Transparent, Th.Hover, box / 3, new Thickness(0)) { Margin = new Thickness(1, 0, 1, 0) };
+
+                var itemKey = it.Key;
+                b.PreviewMouseLeftButtonDown += (s, e) =>
+                {
+                    appDragKey = itemKey;
+                    appDragStart = e.GetPosition(winSp);
+                    appIsDragging = false;
+                };
+                b.PreviewMouseMove += (s, e) =>
+                {
+                    if (e.LeftButton == MouseButtonState.Pressed && appDragKey == itemKey)
+                    {
+                        Point curP = e.GetPosition(winSp);
+                        if (!appIsDragging && Math.Abs(curP.X - appDragStart.X) > 6)
+                        {
+                            appIsDragging = true;
+                            b.CaptureMouse();
+                            HidePeek();
+                        }
+                        if (appIsDragging)
+                        {
+                            for (int ci = 0; ci < winSp.Children.Count; ci++)
+                            {
+                                var ch = winSp.Children[ci] as FrameworkElement;
+                                if (ch == null || ch == b) continue;
+                                Point pt = ch.TranslatePoint(new Point(0, 0), winSp);
+                                if (curP.X >= pt.X && curP.X <= pt.X + ch.ActualWidth)
+                                {
+                                    if (ci < shown.Count)
+                                    {
+                                        string targetKey = shown[ci].Key;
+                                        if (targetKey != appDragKey)
+                                        {
+                                            int oldIdx = order.IndexOf(appDragKey);
+                                            int newIdx = order.IndexOf(targetKey);
+                                            if (oldIdx >= 0 && newIdx >= 0)
+                                            {
+                                                order.RemoveAt(oldIdx);
+                                                order.Insert(newIdx, appDragKey);
+                                                app.Store.Set("pillAppOrder", order);
+                                                winSig = "";
+                                                RefreshWindows();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+                b.PreviewMouseLeftButtonUp += (s, e) =>
+                {
+                    if (appIsDragging)
+                    {
+                        b.ReleaseMouseCapture();
+                        appIsDragging = false;
+                        appDragKey = null;
+                        e.Handled = true;
+                    }
+                    else
+                    {
+                        appDragKey = null;
+                    }
+                };
                 if (it.Windows.Count > 1) b.ToolTip = it.Name + " (" + it.Windows.Count + " " + Loc.Tr("Fenster") + ")";
                 else if (it.Windows.Count == 1) b.ToolTip = it.Windows[0].Title;
                 else b.ToolTip = it.Name + " (" + Loc.Tr("Favorit") + ")";
@@ -4094,6 +4164,7 @@ namespace Nook
                 var curItem = it;
                 b.Click += () =>
                 {
+                    if (appIsDragging) return;
                     HidePeek();
                     if (curItem.Windows.Count > 0)
                     {
