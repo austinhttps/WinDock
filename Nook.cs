@@ -180,7 +180,7 @@ namespace Nook
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
   ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
-  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
+  ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
   ""apps"": { ""showFavorites"": true, ""recentCount"": 5, ""compact"": false, ""showKind"": true,
              ""quickLinks"": [ { ""name"": ""Gmail"", ""target"": ""https://mail.google.com"" } ],
@@ -441,6 +441,7 @@ namespace Nook
             { "Übertragen", "Cast" },
             { "Verbinden", "Connect" },
             { "Helligkeits-Regler", "Brightness slider" },
+            { "Stromsparmodus", "Battery saver" },
             { "Energie sparen", "Sleep" },
             { "Abmelden", "Sign out" },
             { "Neu starten", "Restart" },
@@ -1116,6 +1117,9 @@ namespace Nook
     public static class N
     {
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)] public static extern uint SetThreadExecutionState(uint esFlags);
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SYSTEM_POWER_STATUS { public byte ACLineStatus; public byte BatteryFlag; public byte BatteryLifePercent; public byte SystemStatusFlag; public int BatteryLifeTime; public int BatteryFullLifeTime; }
+        [DllImport("kernel32.dll")] public static extern bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS sps);
         [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
         [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
         [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
@@ -1205,6 +1209,33 @@ namespace Nook
             finally { CloseHandle(h); }
         }
         [DllImport("powrprof.dll")] public static extern bool SetSuspendState(bool hibernate, bool force, bool disableWake);
+        [DllImport("powrprof.dll")] public static extern uint PowerGetActualOverlayScheme(out Guid pOverlaySchemeGuid);
+        [DllImport("powrprof.dll")] public static extern uint PowerSetActiveOverlayScheme(ref Guid OverlaySchemeGuid);
+        public static readonly Guid SaverOverlayGuid = new Guid("961cc777-2547-4f9d-8174-7d86181b8a7a");
+
+        public static bool IsBatterySaverActive()
+        {
+            try
+            {
+                SYSTEM_POWER_STATUS sps;
+                if (GetSystemPowerStatus(out sps) && sps.SystemStatusFlag == 1) return true;
+                Guid cur;
+                if (PowerGetActualOverlayScheme(out cur) == 0 && cur == SaverOverlayGuid) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        public static void ToggleBatterySaver()
+        {
+            try
+            {
+                bool active = IsBatterySaverActive();
+                Guid target = active ? Guid.Empty : SaverOverlayGuid;
+                PowerSetActiveOverlayScheme(ref target);
+            }
+            catch { }
+        }
         [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
         [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr dc);
         [DllImport("gdi32.dll")] public static extern int GetObject(IntPtr h, int size, out BITMAP bm);
@@ -5661,7 +5692,7 @@ namespace Nook
         public override string Id { get { return "controls"; } }
         public override string Title { get { return Loc.Tr("Steuerung"); } }
 
-        readonly Tile wifi, bt, audio, night, dark, mic, awake, cast;
+        readonly Tile wifi, bt, audio, night, dark, mic, awake, cast, batterySaver;
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
@@ -5693,6 +5724,8 @@ namespace Nook
             awake.Click += ToggleAwake;
             cast = new Tile("\uEC15", Loc.Tr("Übertragen"), true);
             cast.Click += OpenCast;
+            batterySaver = new Tile("\uEBAA", Loc.Tr("Stromsparmodus"), false);
+            batterySaver.Click += ToggleBatterySaver;
             wifi.Click += () => Settings("ms-settings:network-wifi");
             bt.Click += () => Settings("ms-settings:bluetooth");
             audio.Click += OpenAudio;
@@ -5708,7 +5741,8 @@ namespace Nook
                 { "dark", new KeyValuePair<Tile, Action>(dark, ToggleDark) },
                 { "mic", new KeyValuePair<Tile, Action>(mic, ToggleMic) },
                 { "awake", new KeyValuePair<Tile, Action>(awake, ToggleAwake) },
-                { "cast", new KeyValuePair<Tile, Action>(cast, OpenCast) }
+                { "cast", new KeyValuePair<Tile, Action>(cast, OpenCast) },
+                { "batterysaver", new KeyValuePair<Tile, Action>(batterySaver, ToggleBatterySaver) }
             };
             // Kacheln in der eingestellten Reihenfolge, je 3 pro Reihe
             var ids = app.Cfg.L("controls.tiles").Select(x => Convert.ToString(x)).Where(all.ContainsKey).Distinct().ToList();
@@ -5845,6 +5879,18 @@ namespace Nook
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
         }
 
+        void ToggleBatterySaver()
+        {
+            N.ToggleBatterySaver();
+            RefreshBatterySaver();
+        }
+
+        void RefreshBatterySaver()
+        {
+            bool on = N.IsBatterySaverActive();
+            batterySaver.Set(on, on ? Loc.Tr("An") : Loc.Tr("Aus"));
+        }
+
         void ToggleMic()
         {
             if (!Audio.HasMic()) { App.Pill.Flash(Loc.Tr("Kein Mikrofon gefunden"), 2, false); return; }
@@ -5915,6 +5961,7 @@ namespace Nook
             RefreshMic();
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
             cast.Set(false, Loc.Tr("Verbinden"));
+            RefreshBatterySaver();
             bool d = IsDark();
             dark.Set(d, d ? Loc.Tr("An") : Loc.Tr("Aus"));
             night.Set(false, Loc.Tr("Einstellungen"));
@@ -8992,7 +9039,7 @@ namespace Nook
             return new[]
             {
                 new[] { "wifi", Loc.Tr("WLAN"), "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
-                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }
+                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }
             };
         }
 
@@ -9588,7 +9635,7 @@ namespace Nook
                 var subs = new Dictionary<string, string[]>
                 {
                     { "wifi", new[] { "1", Loc.Tr("Zuhause 5G") } }, { "bluetooth", new[] { "0", Loc.Tr("Einstellungen") } }, { "audio", new[] { "1", Loc.Tr("Lautsprecher") } },
-                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }
+                    { "night", new[] { "0", Loc.Tr("Einstellungen") } }, { "dark", new[] { "1", Loc.Tr("An") } }, { "mic", new[] { "0", Loc.Tr("An") } }, { "awake", new[] { "0", Loc.Tr("Aus") } }, { "cast", new[] { "0", Loc.Tr("Verbinden") } }, { "batterysaver", new[] { "0", Loc.Tr("Aus") } }
                 };
                 var rowsDef = new List<GridLength>();
                 int tileRows = (ids.Count + 2) / 3;
@@ -9610,7 +9657,7 @@ namespace Nook
                         int i = r * 3 + ci;
                         if (i >= ids.Count) break;
                         var def = all.First(a => a[0] == ids[i]);
-                        var tile = new Tile(def[2], def[1], ids[i] != "dark" && ids[i] != "mic" && ids[i] != "awake");
+                        var tile = new Tile(def[2], def[1], ids[i] != "dark" && ids[i] != "mic" && ids[i] != "awake" && ids[i] != "batterysaver");
                         tile.Set(subs[ids[i]][0] == "1", subs[ids[i]][1]);
                         U.Put(rg, tile, 0, ci * 2);
                     }
