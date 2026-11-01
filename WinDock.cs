@@ -4914,6 +4914,10 @@ namespace WinDock
                     item.Name = ae.Name;
                     ae.RequestIcon();
                     item.Icon = ae.Icon;
+                    if (item.Icon == null)
+                    {
+                        ae.OnIcon = () => Dispatcher.BeginInvoke(new Action(() => { winSig = ""; RefreshWindowsSoon(); }));
+                    }
                 }
                 else
                 {
@@ -4982,7 +4986,22 @@ namespace WinDock
             IntPtr fg = N.GetForegroundWindow();
             string fgKey = all.Where(w => w.H == fg).Select(w => KeyOf(w)).FirstOrDefault();
             var mon = app.MonitorDip();
-            double textW = textItems != null && textItems.ActualWidth > 0 ? textItems.ActualWidth : 360;
+            double textW = 0;
+            if (textItems != null)
+            {
+                foreach (UIElement el in textItems.Children)
+                {
+                    if (el == winSp || el == winSep) continue;
+                    var fe = el as FrameworkElement;
+                    if (fe != null && fe.Visibility == Visibility.Visible)
+                    {
+                        double fw = fe.ActualWidth > 0 ? fe.ActualWidth : fe.Width;
+                        if (double.IsNaN(fw) || fw <= 0) fw = 24;
+                        textW += fw + fe.Margin.Left + fe.Margin.Right;
+                    }
+                }
+            }
+            if (textW <= 0) textW = 160;
             double availW = Math.Max(100, mon.Width - textW - 140);
             double boxW = h - 6;
             int maxFitting = Math.Max(1, (int)(availW / (boxW + 2)));
@@ -4997,12 +5016,39 @@ namespace WinDock
                 overflowDockItems.AddRange(orderedItems.Skip(max));
             }
 
-            string sig = string.Join("|", shown.Select(x => x.Key + ":" + x.Windows.Count + (x.Icon != null ? "1" : "0"))) + "#" + fgKey;
+            string structSig = string.Join("|", shown.Select(x => x.Key + ":" + x.Windows.Count + (x.Icon != null ? "1" : "0")));
             bool any = shown.Count > 0;
             winSep.Visibility = any && anyText ? Visibility.Visible : Visibility.Collapsed;
             winSp.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
-            if (sig == winSig) return;
-            winSig = sig;
+
+            // If structure didn't change, only update active indicator in-place without rebuilding DOM
+            if (structSig == winSig)
+            {
+                foreach (FrameworkElement child in winSp.Children)
+                {
+                    string key = child.Tag as string;
+                    if (key == null) continue;
+                    DockAppItem it;
+                    if (!currentItems.TryGetValue(key, out it)) continue;
+                    bool active = it.Windows.Any(w => w.H == fg);
+                    var btn = child as Btn;
+                    var cell = btn != null ? btn.Child as Grid : child as Grid;
+                    if (cell != null)
+                    {
+                        foreach (var subEl in cell.Children)
+                        {
+                            var bdr = subEl as Border;
+                            if (bdr != null && (string)bdr.Tag == "active_bar")
+                            {
+                                bdr.Width = active ? 10 : 4;
+                                bdr.Background = active ? Th.Accent : Th.Muted;
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+            winSig = structSig;
             winSp.Children.Clear();
             currentItems.Clear();
 
@@ -5024,6 +5070,7 @@ namespace WinDock
                 {
                     cell.Children.Add(new Border
                     {
+                        Tag = "active_bar",
                         Width = active ? 10 : 4, Height = 3, CornerRadius = new CornerRadius(1.5),
                         Background = active ? Th.Accent : Th.Muted, VerticalAlignment = VerticalAlignment.Bottom,
                         HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 1)
