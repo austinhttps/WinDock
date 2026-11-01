@@ -2046,6 +2046,68 @@ namespace Nook
 #endif
 
     // -----------------------------------------------------------------
+    //  Akku- / Batteriestatus
+    // -----------------------------------------------------------------
+    public static class BatteryStatus
+    {
+        public static bool HasBattery
+        {
+            get
+            {
+                try
+                {
+                    var ps = System.Windows.Forms.SystemInformation.PowerStatus;
+                    return (ps.BatteryChargeStatus & System.Windows.Forms.BatteryChargeStatus.NoSystemBattery) == 0
+                        && ps.BatteryLifePercent >= 0 && ps.BatteryLifePercent <= 1.0f;
+                }
+                catch { return false; }
+            }
+        }
+
+        public static int Percent
+        {
+            get
+            {
+                try
+                {
+                    var ps = System.Windows.Forms.SystemInformation.PowerStatus;
+                    return (int)Math.Round(ps.BatteryLifePercent * 100);
+                }
+                catch { return -1; }
+            }
+        }
+
+        public static bool IsCharging
+        {
+            get
+            {
+                try
+                {
+                    var ps = System.Windows.Forms.SystemInformation.PowerStatus;
+                    return ps.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online
+                        || (ps.BatteryChargeStatus & System.Windows.Forms.BatteryChargeStatus.Charging) != 0;
+                }
+                catch { return false; }
+            }
+        }
+
+        public static string Glyph(int pct, bool charging)
+        {
+            if (charging) return "\uEA93"; // Charging
+            if (pct >= 90) return "\uEBB5";
+            if (pct >= 80) return "\uEBB4";
+            if (pct >= 70) return "\uEBB3";
+            if (pct >= 60) return "\uEBB2";
+            if (pct >= 50) return "\uEBB1";
+            if (pct >= 40) return "\uEBA9";
+            if (pct >= 30) return "\uEBA8";
+            if (pct >= 20) return "\uEBA7";
+            if (pct >= 10) return "\uEBA6";
+            return "\uEBA4";
+        }
+    }
+
+    // -----------------------------------------------------------------
     //  Wetter (Open-Meteo, ohne Anmeldung)
     // -----------------------------------------------------------------
     public static class Weather
@@ -3538,7 +3600,8 @@ namespace Nook
     {
         readonly NookApp app;
         readonly Border body, winSep;
-        readonly TextBlock clock, date, weatherTx, media, timerTx, flashTx;
+        readonly TextBlock clock, date, weatherTx, batteryIc, batteryTx, media, timerTx, flashTx;
+        readonly StackPanel batterySp;
         readonly Border dot;
         readonly StackPanel mediaSp, timerSp, winSp;
         StackPanel textItems;
@@ -3586,7 +3649,14 @@ namespace Nook
             clock = U.T("", fs, Th.Text, FontWeights.SemiBold);
             date = U.T("", fs, Th.Muted);
             weatherTx = U.T("", fs, Th.Text);
-            weatherTx.ToolTip = Loc.Tr("Wetter"); date.Margin = new Thickness(8, 0, 0, 0);
+            weatherTx.ToolTip = Loc.Tr("Wetter");
+
+            batterySp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            batteryIc = U.I("\uEBB5", fs, Th.Text);
+            batteryTx = U.T("", fs, Th.Text);
+            batteryTx.Margin = new Thickness(4, 0, 0, 0);
+            batterySp.Children.Add(batteryIc);
+            batterySp.Children.Add(batteryTx); date.Margin = new Thickness(8, 0, 0, 0);
 
             timerSp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 0, 0) };
             var ti = U.I("", fs - 1, Th.Accent); ti.Margin = new Thickness(0, 1, 5, 0);
@@ -3622,9 +3692,9 @@ namespace Nook
             sensorSp.Children.Add(camBtn);
 
             // Inhalte in der eingestellten Reihenfolge
-            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "timer", timerSp }, { "media", mediaSp } };
+            var pItems = new Dictionary<string, UIElement> { { "mic", sensorSp }, { "battery", batterySp }, { "clock", clock }, { "date", date }, { "weather", weatherTx }, { "timer", timerSp }, { "media", mediaSp } };
             var pOrder = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "clock", "date", "weather", "timer", "media", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
+            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "windows" }) if (!pOrder.Contains(id)) pOrder.Add(id);
             winFirst = pOrder.IndexOf("windows") == 0;
             foreach (var id in pOrder)
             {
@@ -3802,6 +3872,24 @@ namespace Nook
             date.Visibility = c.B("pill.showDate", false) ? Visibility.Visible : Visibility.Collapsed;
             string df = c.S("pill.dateFormat", "short");
             date.Text = now.ToString(df == "long" ? (Loc.En ? "dddd, MMMM d" : "dddd, d. MMMM") : df == "numeric" ? (Loc.En ? "MM/dd" : "dd.MM.") : Loc.Tr("ddd d. MMM"), Th.Cul);
+
+            bool showBattery = c.B("pill.showBattery", true);
+            if (showBattery && BatteryStatus.HasBattery)
+            {
+                int pct = BatteryStatus.Percent;
+                bool chg = BatteryStatus.IsCharging;
+                batterySp.Visibility = Visibility.Visible;
+                batteryIc.Text = BatteryStatus.Glyph(pct, chg);
+                batteryTx.Text = pct + "%";
+                var fg = (!chg && pct <= 15) ? Th.B(Color.FromRgb(240, 90, 80)) : Th.Text;
+                batteryIc.Foreground = fg;
+                batteryTx.Foreground = fg;
+                batterySp.ToolTip = pct + "%" + (chg ? " (" + Loc.Tr("Netzbetrieb") + ")" : " (" + Loc.Tr("Akkubetrieb") + ")");
+            }
+            else
+            {
+                batterySp.Visibility = Visibility.Collapsed;
+            }
 
             bool showWeather = c.B("pill.showWeather", true);
             if (showWeather && !double.IsNaN(Weather.Temp))
@@ -8383,6 +8471,7 @@ namespace Nook
                 Row(Loc.Tr("Sekunden anzeigen"), null, Toggle("pill.clockSeconds", null)),
                 Row(Loc.Tr("Datum"), null, Toggle("pill.showDate", null)),
                 Row(Loc.Tr("Wetter in der Pille"), Loc.Tr("nutzt Gerätestandort oder Fallback-Ort"), Toggle("pill.showWeather", null)),
+                Row(Loc.Tr("Akku anzeigen"), Loc.Tr("bei Laptops und Tablets"), Toggle("pill.showBattery", null)),
                 Row(Loc.Tr("Datumsformat"), null, Seg("pill.dateFormat", O("short:Kurz", "long:Lang", "numeric:Zahlen"), null)),
                 Row(Loc.Tr("Laufender Song"), null, Toggle("pill.showMedia", null)),
                 Row(Loc.Tr("Max. Breite des Songs"), null, Slider("pill.mediaWidth", 100, 400, 10, "px", false)),
@@ -8758,7 +8847,7 @@ namespace Nook
             bool sec = c.B("pill.clockSeconds", false);
             string df = c.S("pill.dateFormat", "short");
             var order = c.L("pill.order").Select(x => Convert.ToString(x)).ToList();
-            foreach (var id in new[] { "mic", "clock", "date", "weather", "timer", "media", "windows" }) if (!order.Contains(id)) order.Add(id);
+            foreach (var id in new[] { "mic", "battery", "clock", "date", "weather", "timer", "media", "windows" }) if (!order.Contains(id)) order.Add(id);
 
             // Teile in der eingestellten Reihenfolge: (art, element) – art "win" für die App-Icons
             var parts = new List<KeyValuePair<string, FrameworkElement>>();
@@ -8771,6 +8860,8 @@ namespace Nook
                     el = U.T(now.ToString(df == "long" ? (Loc.En ? "dddd, MMMM d" : "dddd, d. MMMM") : df == "numeric" ? (Loc.En ? "MM/dd" : "dd.MM.") : Loc.Tr("ddd d. MMM"), Th.Cul), fs, Th.Muted);
                 else if (id == "weather" && c.B("pill.showWeather", true))
                     el = U.T("⛅ 20°", fs, Th.Text);
+                else if (id == "battery" && c.B("pill.showBattery", true))
+                    el = U.T(" 85%", fs, Th.Text);
                 else if (id == "media" && c.B("pill.showMedia", true))
                 {
                     var m = new StackPanel { Orientation = Orientation.Horizontal };
