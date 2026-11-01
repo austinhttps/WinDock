@@ -187,7 +187,7 @@ namespace Nook
              ""webSearch"": ""https://www.google.com/search?q="", ""hideUninstallers"": true },
   ""taskbar"": { ""group"": true },
   ""clipboard"": { ""enabled"": true, ""maxItems"": 60, ""persist"": true, ""defaultFilter"": ""all"" },
-  ""power"": { ""buttons"": [ ""lock"", ""sleep"", ""logoff"", ""restart"", ""shutdown"" ], ""confirm"": true }
+  ""power"": { ""buttons"": [ ""lock"", ""sleep"", ""hibernate"", ""logoff"", ""restart"", ""shutdown"" ], ""confirm"": true }
 }";
 
         public Dictionary<string, object> Root;
@@ -436,6 +436,7 @@ namespace Nook
             { "Lösen", "Unpin" },
             { "Löschen", "Delete" },
             { "Sperren", "Lock" },
+            { "Ruhezustand", "Hibernate" },
             { "Energie sparen", "Sleep" },
             { "Abmelden", "Sign out" },
             { "Neu starten", "Restart" },
@@ -7091,6 +7092,7 @@ namespace Nook
             {
                 { "lock", () => MakeTile("lock", "L", "\uE72E", Loc.Tr("Sperren"), false, () => N.LockWorkStation()) },
                 { "sleep", () => MakeTile("sleep", "E", "\uE708", Loc.Tr("Energie sparen"), false, () => N.SetSuspendState(false, false, false)) },
+                { "hibernate", () => MakeTile("hibernate", "R", "\uE945", Loc.Tr("Ruhezustand"), true, () => { if (!N.SetSuspendState(true, false, false)) Run("shutdown", "/h"); }) },
                 { "logoff", () => MakeTile("logoff", "A", "\uF3B1", Loc.Tr("Abmelden"), true, () => Run("shutdown", "/l")) },
                 { "restart", () => MakeTile("restart", "N", "\uE777", Loc.Tr("Neu starten"), true, () => Run("shutdown", "/r /t 0")) },
                 { "shutdown", () => MakeTile("shutdown", "H", "\uE7E8", Loc.Tr("Herunterfahren"), true, () => Run("shutdown", "/s /t 0")) }
@@ -8816,7 +8818,7 @@ namespace Nook
         {
             return new[]
             {
-                new[] { "lock", Loc.Tr("Sperren"), "" }, new[] { "sleep", Loc.Tr("Energie sparen"), "" }, new[] { "logoff", Loc.Tr("Abmelden"), "" },
+                new[] { "lock", Loc.Tr("Sperren"), "" }, new[] { "sleep", Loc.Tr("Energie sparen"), "" }, new[] { "hibernate", Loc.Tr("Ruhezustand"), "" }, new[] { "logoff", Loc.Tr("Abmelden"), "" },
                 new[] { "restart", Loc.Tr("Neu starten"), "" }, new[] { "shutdown", Loc.Tr("Herunterfahren"), "" }
             };
         }
