@@ -178,7 +178,7 @@ namespace Nook
               ""surface"": ""#161618"", ""surface2"": ""#232326"", ""text"": ""#F2F2F0"", ""muted"": ""#8E8E93"",
               ""pillBackground"": ""#0B0B0C"", ""border"": """", ""opacity"": 0.98,
               ""cardStyle"": ""filled"", ""cardRadius"": 18, ""font"": ""Segoe UI Variable Display"", ""scale"": ""auto"" },
-  ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""power"" ],
+  ""tabs"": [ ""controls"", ""today"", ""apps"", ""taskbar"", ""clipboard"", ""notifications"", ""power"" ],
   ""behavior"": { ""winKey"": true, ""winTab"": ""same"", ""hotkey"": """", ""typeToSearch"": ""apps"", ""hideWindowsTaskbar"": true, ""autostart"": false },
   ""controls"": { ""tiles"": [ ""wifi"", ""bluetooth"", ""audio"", ""night"", ""dark"", ""mic"", ""awake"", ""cast"", ""batterysaver"", ""dnd"" ], ""showBrightness"": true, ""showVolume"": true, ""showMedia"": true },
   ""today"": { ""showWeather"": true, ""showTimer"": true, ""showTodos"": true, ""weatherCity"": """", ""weatherUnit"": ""C"", ""timerPresets"": [ 1, 5, 10, 15, 20 ] },
@@ -443,6 +443,12 @@ namespace Nook
             { "Helligkeits-Regler", "Brightness slider" },
             { "Stromsparmodus", "Battery saver" },
             { "Nicht stören", "Do not disturb" },
+            { "Benachrichtigungen", "Notifications" },
+            { "Keine Benachrichtigungen", "No notifications" },
+            { "Neue Benachrichtigungen erscheinen hier", "New notifications will appear here" },
+            { "Windows-Zentrale", "Windows Center" },
+            { "Verlauf aller Windows-Benachrichtigungen", "History of all Windows notifications" },
+            { "Gerade eben", "Just now" },
             { "WLAN-Netzwerke", "Wi-Fi Networks" },
             { "Bluetooth-Geräte", "Bluetooth Devices" },
             { "Verbunden", "Connected" },
@@ -5103,6 +5109,7 @@ namespace Nook
                 case "apps": return "\uE71D";
                 case "taskbar": return "\uE7C4";
                 case "clipboard": return "\uE77F";
+                case "notifications": return "\uEA8F";
                 case "power": return "\uE7E8";
             }
             return "\uE80F";
@@ -5316,6 +5323,7 @@ namespace Nook
                     case "apps": t = new LazyTab("apps", "Apps", app, () => new AppsTab(app)); break;
                     case "taskbar": t = new LazyTab("taskbar", "Taskbar", app, () => new TaskbarTab(app)); break;
                     case "clipboard": t = new LazyTab("clipboard", Loc.Tr("Zwischenablage"), app, () => new ClipboardTab(app)); break;
+                    case "notifications": t = new LazyTab("notifications", Loc.Tr("Benachrichtigungen"), app, () => new NotificationsTab(app)); break;
                     case "power": t = new LazyTab("power", "Power", app, () => new PowerTab(app)); break;
                 }
                 if (t == null || tabs.Any(x => x.Id == t.Id)) continue;
@@ -7625,6 +7633,275 @@ namespace Nook
     // -----------------------------------------------------------------
     //  Tab: Power
     // -----------------------------------------------------------------
+
+    // -----------------------------------------------------------------
+    //  Tab: Benachrichtigungen (Windows Notification History)
+    // -----------------------------------------------------------------
+    public class NotificationItem
+    {
+        public string App;
+        public string Title;
+        public string Message;
+        public DateTime Time;
+    }
+
+    public static class NotificationReader
+    {
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_open_v2", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sqlite3_open_v2(byte[] filename, out IntPtr ppDb, int flags, IntPtr zVfs);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_prepare_v2", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sqlite3_prepare_v2(IntPtr db, byte[] zSql, int nByte, out IntPtr ppStmt, IntPtr pzTail);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_step", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sqlite3_step(IntPtr pStmt);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_text", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr sqlite3_column_text(IntPtr pStmt, int iCol);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_blob", CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr sqlite3_column_blob(IntPtr pStmt, int iCol);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_bytes", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sqlite3_column_bytes(IntPtr pStmt, int iCol);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_column_int64", CallingConvention = CallingConvention.Cdecl)]
+        public static extern long sqlite3_column_int64(IntPtr pStmt, int iCol);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_finalize", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sqlite3_finalize(IntPtr pStmt);
+
+        [DllImport("winsqlite3.dll", EntryPoint = "sqlite3_close", CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sqlite3_close(IntPtr db);
+
+        static string Utf8PtrToString(IntPtr ptr)
+        {
+            if (ptr == IntPtr.Zero) return "";
+            int len = 0;
+            while (Marshal.ReadByte(ptr, len) != 0) len++;
+            byte[] buffer = new byte[len];
+            Marshal.Copy(ptr, buffer, 0, len);
+            return Encoding.UTF8.GetString(buffer);
+        }
+
+        public static List<NotificationItem> GetNotifications(int limit = 50)
+        {
+            var list = new List<NotificationItem>();
+            try
+            {
+                string path = Environment.ExpandEnvironmentVariables(@"%LOCALAPPDATA%\Microsoft\Windows\Notifications\wpndatabase.db");
+                if (!System.IO.File.Exists(path)) return list;
+                byte[] filename = Encoding.UTF8.GetBytes(path + "\0");
+                IntPtr db;
+                if (sqlite3_open_v2(filename, out db, 1, IntPtr.Zero) != 0) return list;
+
+                try
+                {
+                    string sql = "SELECT n.Payload, h.PrimaryId, n.ArrivalTime FROM Notification n JOIN NotificationHandler h ON n.HandlerId = h.RecordId WHERE n.Type = 'toast' ORDER BY n.ArrivalTime DESC LIMIT " + limit + ";";
+                    byte[] sqlBytes = Encoding.UTF8.GetBytes(sql + "\0");
+                    IntPtr stmt;
+                    if (sqlite3_prepare_v2(db, sqlBytes, -1, out stmt, IntPtr.Zero) == 0)
+                    {
+                        while (sqlite3_step(stmt) == 100)
+                        {
+                            int blobLen = sqlite3_column_bytes(stmt, 0);
+                            IntPtr blobPtr = sqlite3_column_blob(stmt, 0);
+                            string payload = "";
+                            if (blobPtr != IntPtr.Zero && blobLen > 0)
+                            {
+                                byte[] blob = new byte[blobLen];
+                                Marshal.Copy(blobPtr, blob, 0, blobLen);
+                                payload = Encoding.UTF8.GetString(blob);
+                            }
+                            string rawApp = Utf8PtrToString(sqlite3_column_text(stmt, 1));
+                            long ft = sqlite3_column_int64(stmt, 2);
+                            DateTime dt = DateTime.Now;
+                            try { if (ft > 0) dt = DateTime.FromFileTimeUtc(ft).ToLocalTime(); } catch { }
+
+                            var matches = Regex.Matches(payload, @"<text[^>]*>(.*?)</text>", RegexOptions.Singleline);
+                            string title = "", msg = "";
+                            if (matches.Count > 0) title = CleanXml(matches[0].Groups[1].Value);
+                            if (matches.Count > 1) msg = CleanXml(matches[1].Groups[1].Value);
+
+                            string cleanApp = CleanAppName(rawApp);
+                            if (string.IsNullOrEmpty(title) && string.IsNullOrEmpty(msg)) continue;
+                            list.Add(new NotificationItem
+                            {
+                                App = cleanApp,
+                                Title = string.IsNullOrEmpty(title) ? cleanApp : title,
+                                Message = msg,
+                                Time = dt
+                            });
+                        }
+                        sqlite3_finalize(stmt);
+                    }
+                }
+                finally
+                {
+                    sqlite3_close(db);
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        static string CleanXml(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("&amp;", "&").Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"").Replace("&apos;", "'").Trim();
+        }
+
+        static string CleanAppName(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "Windows";
+            if (s.Contains("!"))
+            {
+                int idx = s.IndexOf('!');
+                s = s.Substring(0, idx);
+            }
+            if (s.Contains("_"))
+            {
+                int idx = s.IndexOf('_');
+                s = s.Substring(0, idx);
+            }
+            int dot = s.LastIndexOf('.');
+            if (dot >= 0 && dot < s.Length - 1) s = s.Substring(dot + 1);
+            return s;
+        }
+    }
+
+    public class NotificationsTab : TabBase
+    {
+        public override string Id { get { return "notifications"; } }
+        public override string Title { get { return Loc.Tr("Benachrichtigungen"); } }
+
+        readonly StackPanel itemsSp = new StackPanel();
+        readonly TextBlock countTb;
+        readonly ScrollViewer scroll;
+        DateTime lastLoad = DateTime.MinValue;
+
+        public NotificationsTab(NookApp app) : base(app)
+        {
+            var g = U.G(new[] { U.Px(46), U.Px(10), U.Star(1) }, null);
+
+            var topBar = U.G(null, new[] { U.Star(1), U.Auto, U.Px(8), U.Auto });
+            countTb = U.T(Loc.Tr("Benachrichtigungen"), 16, Th.Text, FontWeights.Bold);
+            countTb.VerticalAlignment = VerticalAlignment.Center;
+            U.Put(topBar, countTb, 0, 0);
+
+            var refreshBtn = U.IconBtn("\uE72C", 32, 12, Th.Surface2, Th.Hover, Th.Muted);
+            refreshBtn.ToolTip = Loc.Tr("Aktualisieren");
+            refreshBtn.Click += () => LoadNotifications();
+            U.Put(topBar, refreshBtn, 0, 1);
+
+            var winBtn = new Button
+            {
+                Content = U.T(Loc.Tr("Windows-Zentrale"), 12, Th.Accent, FontWeights.SemiBold),
+                Background = Th.Surface2, BorderThickness = new Thickness(0), Cursor = Cursors.Hand,
+                Padding = new Thickness(10, 6, 10, 6)
+            };
+            winBtn.Click += (s, e) => { App.ClosePanel(); N.OpenNotificationCenter(); };
+            U.Put(topBar, winBtn, 0, 3);
+            U.Put(g, topBar, 0, 0);
+
+            scroll = new ScrollViewer { Content = itemsSp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
+            U.Put(g, scroll, 2, 0);
+
+            View = g;
+        }
+
+        public override void Shown()
+        {
+            if ((DateTime.Now - lastLoad).TotalSeconds > 5) LoadNotifications();
+        }
+
+        public override void Tick()
+        {
+            if ((DateTime.Now - lastLoad).TotalSeconds > 15) LoadNotifications();
+        }
+
+        public override void Key(KeyEventArgs e)
+        {
+            if (e.Key == System.Windows.Input.Key.F5) { LoadNotifications(); e.Handled = true; }
+        }
+
+        void LoadNotifications()
+        {
+            lastLoad = DateTime.Now;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var list = NotificationReader.GetNotifications(50);
+                App.Dispatcher.BeginInvoke(new Action(() => RenderNotifications(list)));
+            });
+        }
+
+        void RenderNotifications(List<NotificationItem> list)
+        {
+            itemsSp.Children.Clear();
+            if (list == null || list.Count == 0)
+            {
+                countTb.Text = Loc.Tr("Benachrichtigungen");
+                var empty = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 60, 0, 0) };
+                empty.Children.Add(U.I("\uEA8F", 36, Th.Muted));
+                var t1 = U.T(Loc.Tr("Keine Benachrichtigungen"), 15, Th.Text, FontWeights.SemiBold);
+                t1.Margin = new Thickness(0, 12, 0, 4); t1.HorizontalAlignment = HorizontalAlignment.Center;
+                var t2 = U.T(Loc.Tr("Neue Benachrichtigungen erscheinen hier"), 12.5, Th.Muted);
+                t2.HorizontalAlignment = HorizontalAlignment.Center;
+                empty.Children.Add(t1); empty.Children.Add(t2);
+                itemsSp.Children.Add(empty);
+                return;
+            }
+
+            countTb.Text = list.Count + " " + Loc.Tr("Benachrichtigungen");
+            foreach (var it in list)
+            {
+                var card = new Border
+                {
+                    Background = Th.CardBg, CornerRadius = new CornerRadius(12),
+                    BorderBrush = Th.CardBorder, BorderThickness = new Thickness(Th.CardBorderW),
+                    Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 0, 0, 8)
+                };
+
+                var cg = U.G(new[] { U.Auto, U.Auto, U.Auto }, null);
+
+                // Row 0: App + Time
+                var header = U.G(null, new[] { U.Px(24), U.Px(8), U.Star(1), U.Auto });
+                U.Put(header, U.Letter(it.App, 18), 0, 0);
+                var appName = U.T(it.App, 12.5, Th.Text, FontWeights.SemiBold);
+                appName.VerticalAlignment = VerticalAlignment.Center;
+                U.Put(header, appName, 0, 2);
+
+                string timeStr;
+                var diff = DateTime.Now - it.Time;
+                if (diff.TotalMinutes < 1) timeStr = Loc.Tr("Gerade eben");
+                else if (diff.TotalHours < 1) timeStr = (int)diff.TotalMinutes + "m";
+                else if (diff.TotalDays < 1) timeStr = it.Time.ToString("HH:mm");
+                else timeStr = it.Time.ToString("dd.MM. HH:mm");
+
+                var timeTb = U.T(timeStr, 11.5, Th.Muted);
+                timeTb.VerticalAlignment = VerticalAlignment.Center;
+                U.Put(header, timeTb, 0, 3);
+                U.Put(cg, header, 0, 0);
+
+                // Row 1: Title
+                var titleTb = U.T(it.Title, 13.5, Th.Text, FontWeights.SemiBold);
+                titleTb.Margin = new Thickness(0, 6, 0, 2);
+                U.Put(cg, titleTb, 1, 0);
+
+                // Row 2: Message
+                if (!string.IsNullOrEmpty(it.Message))
+                {
+                    var msgTb = U.T(it.Message, 12.5, Th.Muted);
+                    msgTb.TextWrapping = TextWrapping.Wrap;
+                    U.Put(cg, msgTb, 2, 0);
+                }
+
+                card.Child = cg;
+                itemsSp.Children.Add(card);
+            }
+        }
+    }
+
     public class PowerTab : TabBase
     {
         public override string Id { get { return "power"; } }
@@ -8568,7 +8845,7 @@ namespace Nook
         static readonly string[][] TabNames =
         {
             new[] { "controls", "Steuerung" }, new[] { "today", "Heute" }, new[] { "apps", "Apps" },
-            new[] { "taskbar", "Taskbar" }, new[] { "clipboard", "Zwischenablage" }, new[] { "power", "Power" }
+            new[] { "taskbar", "Taskbar" }, new[] { "clipboard", "Zwischenablage" }, new[] { "notifications", "Benachrichtigungen" }, new[] { "power", "Power" }
         };
 
         static readonly string[][] Presets =
@@ -10061,6 +10338,15 @@ namespace Nook
                     ug.Children.Add(tb);
                 }
                 return ug;
+            }
+            if (tab == "notifications")
+            {
+                var nsp = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+                nsp.Children.Add(U.I("\uEA8F", 36, Th.Muted));
+                var t1 = U.T(Loc.Tr("Benachrichtigungen"), 16, Th.Text, FontWeights.SemiBold); t1.Margin = new Thickness(0, 10, 0, 4); t1.HorizontalAlignment = HorizontalAlignment.Center;
+                var t2 = U.T(Loc.Tr("Verlauf aller Windows-Benachrichtigungen"), 12.5, Th.Muted); t2.HorizontalAlignment = HorizontalAlignment.Center;
+                nsp.Children.Add(t1); nsp.Children.Add(t2);
+                return Card(nsp, new Thickness(20), 0);
             }
             var desc = tab == "today" ? Loc.Tr("Uhr, Woche, Timer, To-dos und Wetter") : tab == "taskbar" ? Loc.Tr("Offene Fenster, nach App sortiert") : Loc.Tr("Verlauf mit Suche, Filtern und Vorschau");
             var e = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
