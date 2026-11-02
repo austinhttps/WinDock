@@ -1403,6 +1403,37 @@ namespace WinDock
         [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr mod, WinEventProc proc, uint pid, uint tid, uint flags);
         [DllImport("user32.dll")] public static extern bool UnhookWinEvent(IntPtr h);
 
+        [DllImport("shell32.dll", SetLastError = true)]
+        public static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
+
+        public static string GetWindowAppId(IntPtr hwnd)
+        {
+            try
+            {
+                Guid iid = typeof(IPropertyStore).GUID;
+                object o;
+                if (SHGetPropertyStoreForWindow(hwnd, ref iid, out o) == 0 && o is IPropertyStore)
+                {
+                    var ps = (IPropertyStore)o;
+                    try
+                    {
+                        var pk = new PROPERTYKEY { fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };
+                        PROPVARIANT pv;
+                        if (ps.GetValue(ref pk, out pv) == 0 && pv.vt == 31 && pv.p != IntPtr.Zero)
+                        {
+                            return Marshal.PtrToStringUni(pv.p);
+                        }
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(ps);
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
         public static string ProcessPath(uint pid)
         {
             IntPtr h = OpenProcess(0x1000, false, pid);
@@ -3220,7 +3251,17 @@ namespace WinDock
             {
                 List<AppEntry> l = null;
                 try { l = FromShell(); } catch { }
-                if (l == null || l.Count == 0) { try { l = FromStartMenu(); } catch { l = new List<AppEntry>(); } }
+                if (l == null) l = new List<AppEntry>();
+                try
+                {
+                    var sm = FromStartMenu();
+                    foreach (var s in sm)
+                    {
+                        if (!l.Any(x => string.Equals(x.Name, s.Name, StringComparison.OrdinalIgnoreCase)))
+                            l.Add(s);
+                    }
+                }
+                catch { }
                 if (hideUninstallers)
                     l = l.Where(a => { var n = a.Name.ToLowerInvariant(); return !n.Contains("uninstall") && !n.Contains("deinstall"); }).ToList();
                 l = l.GroupBy(a => a.Name.ToLowerInvariant()).Select(g => g.First())
@@ -3291,10 +3332,61 @@ namespace WinDock
             return All.FirstOrDefault(a => a.Parse == parse);
         }
 
+        public static bool TryLaunchChromeApp(string parse, string name)
+        {
+            if (string.IsNullOrEmpty(parse) && string.IsNullOrEmpty(name)) return false;
+            try
+            {
+                var appDirs = new[]
+                {
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Windows\Start Menu\Programs\Chrome Apps"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Windows\Start Menu\Programs\Edge Apps"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"Microsoft\Windows\Start Menu\Programs"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"Microsoft\Windows\Start Menu\Programs")
+                };
+
+                string appId = "";
+                if (!string.IsNullOrEmpty(parse) && parse.Contains("_crx_"))
+                {
+                    int idx = parse.IndexOf("_crx_") + 5;
+                    appId = parse.Substring(idx).Trim();
+                }
+
+                foreach (var dir in appDirs)
+                {
+                    if (!Directory.Exists(dir)) continue;
+                    foreach (var f in Directory.EnumerateFiles(dir, "*.lnk", SearchOption.AllDirectories))
+                    {
+                        string fname = Path.GetFileNameWithoutExtension(f);
+                        if (!string.IsNullOrEmpty(name) && string.Equals(fname, name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Process.Start(new ProcessStartInfo(f) { UseShellExecute = true });
+                            return true;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(appId))
+                {
+                    var chromeExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), @"Google\Chrome\Application\chrome.exe");
+                    if (!File.Exists(chromeExe))
+                        chromeExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"Google\Chrome\Application\chrome.exe");
+                    if (File.Exists(chromeExe))
+                    {
+                        Process.Start(new ProcessStartInfo(chromeExe, "--profile-directory=Default --app-id=" + appId) { UseShellExecute = false });
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex) { WinDockApp.Log(ex); }
+            return false;
+        }
+
         public static void Launch(AppEntry a)
         {
             try
             {
+                if (TryLaunchChromeApp(a.Parse, a.Name)) return;
                 if (a.Shell) Process.Start("explorer.exe", "\"shell:AppsFolder\\" + a.Parse + "\"");
                 else Process.Start(a.Parse);
             }
@@ -4255,7 +4347,7 @@ namespace WinDock
     public class WinItem
     {
         public IntPtr H;
-        public string Title, Name, Path, Key;
+        public string Title, Name, Path, Key, AppId;
         public uint Pid;
     }
 
@@ -4287,11 +4379,17 @@ namespace WinDock
                 var info = Info(pid);
                 if (info[0] != null && info[0].EndsWith("explorer.exe", StringComparison.OrdinalIgnoreCase) && cls != "CabinetWClass" && cls != "ExploreWClass") return true;
                 bool uwp = info[1] == "ApplicationFrameHost";
+                string aumid = N.GetWindowAppId(h);
+                string winKey;
+                if (!string.IsNullOrEmpty(aumid)) winKey = aumid;
+                else if (uwp || string.IsNullOrEmpty(info[0])) winKey = "hwnd:" + h.ToInt64();
+                else winKey = info[0].ToLowerInvariant();
+
                 res.Add(new WinItem
                 {
-                    H = h, Title = title, Pid = pid, Path = info[0],
+                    H = h, Title = title, Pid = pid, Path = info[0], AppId = aumid,
                     Name = uwp ? title : info[1],
-                    Key = uwp || string.IsNullOrEmpty(info[0]) ? "hwnd:" + h.ToInt64() : info[0].ToLowerInvariant()
+                    Key = winKey
                 });
                 return true;
             }, IntPtr.Zero);
@@ -4350,7 +4448,13 @@ namespace WinDock
                 ic = N.WindowIcon(w.H);
                 winIcons[w.H] = ic;
             }
-            if (ic != null || string.IsNullOrEmpty(w.Path)) return ic;
+            if (ic != null) return ic;
+            if (!string.IsNullOrEmpty(w.AppId))
+            {
+                try { ic = N.ShellIcon("shell:AppsFolder\\" + w.AppId, 32); } catch { }
+                if (ic != null) { winIcons[w.H] = ic; return ic; }
+            }
+            if (string.IsNullOrEmpty(w.Path)) return ic;
             if (!pathIcons.TryGetValue(w.Path, out ic))
             {
                 ic = N.ShellIcon(w.Path, 32);
@@ -4965,13 +5069,16 @@ namespace WinDock
 
                     bool isMatch = isExplorerMatch ||
                                    string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
-                                   string.Equals(firstW.Path, star, StringComparison.OrdinalIgnoreCase) ||
-                                   (!string.IsNullOrEmpty(firstWFile) && (string.Equals(firstWFile, starFile, StringComparison.OrdinalIgnoreCase) || string.Equals(firstWNoExt, starNoExt, StringComparison.OrdinalIgnoreCase))) ||
-                                   (ae != null && (string.Equals(firstW.Path, ae.Target, StringComparison.OrdinalIgnoreCase) ||
-                                                   string.Equals(firstW.Path, ae.Parse, StringComparison.OrdinalIgnoreCase) ||
-                                                   string.Equals(firstW.Name, ae.Name, StringComparison.OrdinalIgnoreCase) ||
-                                                   (!string.IsNullOrEmpty(ae.Target) && (string.Equals(System.IO.Path.GetFileName(ae.Target), firstWFile, StringComparison.OrdinalIgnoreCase) ||
-                                                                                         string.Equals(System.IO.Path.GetFileNameWithoutExtension(ae.Target), firstWNoExt, StringComparison.OrdinalIgnoreCase)))));
+                                   (!string.IsNullOrEmpty(firstW.AppId) && string.Equals(firstW.AppId, star, StringComparison.OrdinalIgnoreCase)) ||
+                                   (string.IsNullOrEmpty(firstW.AppId) && (
+                                       string.Equals(firstW.Path, star, StringComparison.OrdinalIgnoreCase) ||
+                                       (!string.IsNullOrEmpty(firstWFile) && (string.Equals(firstWFile, starFile, StringComparison.OrdinalIgnoreCase) || string.Equals(firstWNoExt, starNoExt, StringComparison.OrdinalIgnoreCase))) ||
+                                       (ae != null && (string.Equals(firstW.Path, ae.Target, StringComparison.OrdinalIgnoreCase) ||
+                                                       string.Equals(firstW.Path, ae.Parse, StringComparison.OrdinalIgnoreCase) ||
+                                                       string.Equals(firstW.Name, ae.Name, StringComparison.OrdinalIgnoreCase) ||
+                                                       (!string.IsNullOrEmpty(ae.Target) && (string.Equals(System.IO.Path.GetFileName(ae.Target), firstWFile, StringComparison.OrdinalIgnoreCase) ||
+                                                                                             string.Equals(System.IO.Path.GetFileNameWithoutExtension(ae.Target), firstWNoExt, StringComparison.OrdinalIgnoreCase)))))
+                                   ));
                     if (isMatch)
                     {
                         matchedKeys.Add(kvp.Key);
@@ -5216,7 +5323,10 @@ namespace WinDock
                     }
                     else if (!string.IsNullOrEmpty(curItem.Parse))
                     {
-                        try { Process.Start(curItem.Parse); } catch { }
+                        if (!AppIndex.TryLaunchChromeApp(curItem.Parse, curItem.Name))
+                        {
+                            try { Process.Start(curItem.Parse); } catch { }
+                        }
                         RefreshWindowsSoon();
                     }
                 };
@@ -9467,12 +9577,19 @@ namespace WinDock
             {
                 AddJump(items, first.Path);
                 string p = first.Path;
-                items.Add(MI.Item(first.Name + Loc.Tr(" starten"), "", () => { app.ClosePanel(); Start(new ProcessStartInfo(p) { UseShellExecute = true }); }));
+                items.Add(MI.Item(first.Name + Loc.Tr(" starten"), "\uE768", () =>
+                {
+                    app.ClosePanel();
+                    if (!string.IsNullOrEmpty(first.AppId) && AppIndex.TryLaunchChromeApp(first.AppId, first.Name)) return;
+                    Start(new ProcessStartInfo(p) { UseShellExecute = true });
+                }));
 
-                var ae = app.Apps.Find(first.Path) ?? app.Apps.All.FirstOrDefault(a => string.Equals(a.Target, first.Path, StringComparison.OrdinalIgnoreCase));
-                string pinKey = ae != null ? ae.Parse : first.Path;
+                var ae = (!string.IsNullOrEmpty(first.AppId) ? app.Apps.Find(first.AppId) : null) ??
+                         app.Apps.Find(first.Path) ??
+                         app.Apps.All.FirstOrDefault(a => string.Equals(a.Target, first.Path, StringComparison.OrdinalIgnoreCase));
+                string pinKey = !string.IsNullOrEmpty(first.AppId) ? first.AppId : (ae != null ? ae.Parse : first.Path);
                 var pinnedList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
-                bool isPinned = pinnedList.Contains(pinKey) || pinnedList.Contains(first.Path) || (ae != null && pinnedList.Contains(ae.Parse));
+                bool isPinned = pinnedList.Contains(pinKey) || pinnedList.Contains(first.Path) || (ae != null && pinnedList.Contains(ae.Parse)) || (!string.IsNullOrEmpty(first.AppId) && pinnedList.Contains(first.AppId));
                 items.Add(MI.Item(isPinned ? Loc.Tr("Von Pille lösen") : Loc.Tr("An Pille anheften"), isPinned ? "\uE77A" : "\uE718", () =>
                 {
                     var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
@@ -9481,6 +9598,7 @@ namespace WinDock
                         pl.Remove(pinKey);
                         pl.Remove(first.Path);
                         if (ae != null) pl.Remove(ae.Parse);
+                        if (!string.IsNullOrEmpty(first.AppId)) pl.Remove(first.AppId);
                     }
                     else
                     {
