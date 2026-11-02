@@ -11713,7 +11713,7 @@ namespace WinDock
             Section("info", "WinDock",
                 Row("Version", Program.IsTest ? "Test version – runs alongside stable version with separate settings" : "Stable version", ver),
                 Row("Configuration File", "config.json – for backing up or sharing settings", Button(U.T("Open Folder", 13, Th.Text, FontWeights.SemiBold), false, () => app.OpenConfigFolder())),
-                Row("GitHub", "Source code, updates, and issue tracker", Button(U.T("Open Repository", 13, Th.Text, FontWeights.SemiBold), false, () => AppIndex.Open("https://github.com/NixFabo/WinDock"))));
+                Row("GitHub", "Source code, updates, and issue tracker", Button(U.T("Open Repository", 13, Th.Text, FontWeights.SemiBold), false, () => AppIndex.Open("https://github.com/austinhttps/WinDock"))));
             Section("info", "Keyboard Shortcuts",
                 Note("Ctrl+S saves  ·  Esc cancels  ·  Ctrl+F searches  ·  Ctrl+PageUp/Down switches sections  ·  Tab moves to next field  ·  Space toggles  ·  Left/Right adjusts sliders"),
                 Note("In Panel: F1 displays all keyboard shortcuts."));

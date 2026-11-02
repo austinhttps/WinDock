@@ -125,7 +125,7 @@ namespace WinDockSetup
                 k.SetValue("InstallLocation", dir);
                 k.SetValue("UninstallString", "\"" + uninst + "\" /uninstall");
                 k.SetValue("QuietUninstallString", "\"" + uninst + "\" /uninstall /silent");
-                k.SetValue("URLInfoAbout", "https://github.com/NixFabo/WinDock");
+                k.SetValue("URLInfoAbout", "https://github.com/austinhttps/WinDock");
                 k.SetValue("NoModify", 1, RegistryValueKind.DWord);
                 k.SetValue("NoRepair", 1, RegistryValueKind.DWord);
                 k.SetValue("EstimatedSize", (int)(new FileInfo(exe).Length / 1024 + 64), RegistryValueKind.DWord);
