@@ -6404,6 +6404,30 @@ namespace WinDock
             if (cur != null) cur.Key(e);
             if (e.Handled) return;
 
+            if (!(Keyboard.FocusedElement is TextBox))
+            {
+                string ch = KeyToChar(key, mods);
+                if (!string.IsNullOrEmpty(ch))
+                {
+                    Select("apps");
+                    var aTab = (cur as LazyTab != null ? (cur as LazyTab).Real : cur) as AppsTab;
+                    if (aTab != null)
+                    {
+                        aTab.TypeInto(ch);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+                if (key == Key.Back)
+                {
+                    Select("apps");
+                    var aTab = (cur as LazyTab != null ? (cur as LazyTab).Real : cur) as AppsTab;
+                    if (aTab != null) aTab.FocusMain();
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             if (key == Key.Escape)
             {
                 var tb = Keyboard.FocusedElement as TextBox;
@@ -6556,7 +6580,12 @@ namespace WinDock
             app.OnPanelOpened();
             if (shadow != null) shadow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(ShadowOpacity, TimeSpan.FromMilliseconds(140)));
             // Inhalte erst nach der Animation auffrischen – kein Ruckeln währenddessen
-            if (cur != null) cur.Shown();
+            if (cur != null)
+            {
+                cur.Shown();
+                cur.FocusMain();
+            }
+            else Keyboard.Focus(this);
         }
 
         // Pillen-Rechteck in Koordinaten der Panel-Fläche
@@ -6643,6 +6672,51 @@ namespace WinDock
             if (IsOpen && IsActive && !IsKeyboardFocusWithin && MenuWindow.Current == null) Keyboard.Focus(this);
         }
 
+        static string KeyToChar(Key key, ModifierKeys mods)
+        {
+            if ((mods & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return null;
+            bool shift = (mods & ModifierKeys.Shift) != 0;
+            if (key >= Key.A && key <= Key.Z)
+            {
+                char c = (char)('a' + (key - Key.A));
+                return shift ? char.ToUpper(c).ToString() : c.ToString();
+            }
+            if (key >= Key.D0 && key <= Key.D9)
+            {
+                if (!shift) return ((char)('0' + (key - Key.D0))).ToString();
+                switch (key)
+                {
+                    case Key.D1: return "!";
+                    case Key.D2: return "@";
+                    case Key.D3: return "#";
+                    case Key.D4: return "$";
+                    case Key.D5: return "%";
+                    case Key.D6: return "^";
+                    case Key.D7: return "&";
+                    case Key.D8: return "*";
+                    case Key.D9: return "(";
+                    case Key.D0: return ")";
+                }
+            }
+            if (key >= Key.NumPad0 && key <= Key.NumPad9)
+            {
+                return ((char)('0' + (key - Key.NumPad0))).ToString();
+            }
+            if (key == Key.Space) return " ";
+            if (key == Key.OemMinus) return shift ? "_" : "-";
+            if (key == Key.OemPlus) return shift ? "+" : "=";
+            if (key == Key.OemPeriod) return shift ? ">" : ".";
+            if (key == Key.OemComma) return shift ? "<" : ",";
+            if (key == Key.OemQuestion || key == Key.Oem2) return shift ? "?" : "/";
+            if (key == Key.Oem1) return shift ? ":" : ";";
+            if (key == Key.Oem7 || key == Key.OemQuotes) return shift ? "\"" : "'";
+            if (key == Key.Oem3) return shift ? "~" : "`";
+            if (key == Key.Oem4) return shift ? "{" : "[";
+            if (key == Key.Oem6) return shift ? "}" : "]";
+            if (key == Key.Oem5) return shift ? "|" : "\\";
+            return null;
+        }
+
         // Einfach lostippen: ohne Suchfeld landet der Text in der App- oder Fenster-Suche
         void OnText(object s, TextCompositionEventArgs e)
         {
@@ -6651,12 +6725,9 @@ namespace WinDock
             char c = e.Text[0];
             if (char.IsControl(c) || char.IsWhiteSpace(c)) return;
             if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) != 0) return;
-            string target = app.Cfg.S("behavior.typeToSearch", "apps");
-            if (target == "off") return;
-            var t = tabs.FirstOrDefault(x => x.Id == target);
-            if (t == null) return;
-            if (cur != t) Select(t.Id);
-            if (t.TypeInto(e.Text)) e.Handled = true;
+            Select("apps");
+            var aTab = (cur as LazyTab != null ? (cur as LazyTab).Real : cur) as AppsTab;
+            if (aTab != null && aTab.TypeInto(e.Text)) e.Handled = true;
         }
 
         public void MediaChanged()
@@ -7235,7 +7306,7 @@ namespace WinDock
 
             if (showSearch)
             {
-                search = new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 13.5, true) { Height = 40 };
+                search = new SearchBox("Search apps, settings, files or calculate...", "Win", 13.5, true) { Height = 40 };
                 search.Tb.TextChanged += (s, e) =>
                 {
                     if (search.Tb.Text.Length > 0 && !suppressSearch)
@@ -7245,9 +7316,16 @@ namespace WinDock
                         search.Tb.Text = "";
                         suppressSearch = false;
                         App.Panel.Select("apps");
-                        var aTab = App.Panel.Cur as AppsTab;
+                        var aTab = (App.Panel.Cur as LazyTab != null ? (App.Panel.Cur as LazyTab).Real : App.Panel.Cur) as AppsTab;
                         if (aTab != null) aTab.SetQuery(q);
                     }
+                };
+                search.Tb.PreviewMouseDown += (s, e) =>
+                {
+                    App.Panel.Select("apps");
+                    var aTab = (App.Panel.Cur as LazyTab != null ? (App.Panel.Cur as LazyTab).Real : App.Panel.Cur) as AppsTab;
+                    if (aTab != null) aTab.FocusMain();
+                    e.Handled = true;
                 };
                 U.Put(g, search, 0, 0);
             }
@@ -7506,6 +7584,19 @@ namespace WinDock
                 if (mi.CanSeek && mi.Dur > 0) App.Media.Seek(Math.Max(0, Math.Min(mi.Dur, mi.Pos + (k == System.Windows.Input.Key.Left ? -10 : 10))));
                 e.Handled = true;
             }
+        }
+
+        public override void FocusMain()
+        {
+            if (search != null) search.FocusBox();
+        }
+
+        public override bool TypeInto(string text)
+        {
+            App.Panel.Select("apps");
+            var aTab = (App.Panel.Cur as LazyTab != null ? (App.Panel.Cur as LazyTab).Real : App.Panel.Cur) as AppsTab;
+            if (aTab != null) return aTab.TypeInto(text);
+            return false;
         }
 
         static void Settings(string uri)
@@ -8441,7 +8532,7 @@ public class AppsTab : TabBase
         public AppsTab(WinDockApp app) : base(app)
         {
             var g = U.G(new[] { U.Px(54), U.Auto, U.Px(8), U.Star(1) }, null);
-            sb = new SearchBox(Loc.Tr("Apps durchsuchen oder rechnen …"), "Win", 16, true);
+            sb = new SearchBox("Search apps, settings, files or calculate...", "Win", 16, true);
             U.Put(g, sb, 0, 0);
             chips = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
             U.Put(g, chips, 1, 0);
