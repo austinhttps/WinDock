@@ -26,7 +26,7 @@ if not errorlevel 1 (
   timeout /t 2 /nobreak >nul
 )
 
-set BASE=/nologo /codepage:65001 /target:winexe /optimize+ /out:%OUT% /lib:"%FW%\WPF" /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /r:System.Data.dll /r:UIAutomationClient.dll /r:UIAutomationTypes.dll
+set BASE=/nologo /codepage:65001 /target:winexe /optimize+ /out:%OUT% /lib:"%FW%\WPF" /r:PresentationFramework.dll /r:PresentationCore.dll /r:WindowsBase.dll /r:System.Xaml.dll /r:System.Web.Extensions.dll /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Core.dll /r:System.Data.dll
 if exist "windock.ico" set BASE=%BASE% /win32icon:windock.ico
 
 rem --- Full variant with the Windows media API (cover art, progress) ------

@@ -32,7 +32,6 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Windows.Automation;
 using Microsoft.Win32;
 
 // Datei-Infos (Explorer → Eigenschaften → Details); die Version setzt der GitHub-Build
@@ -1357,10 +1356,6 @@ namespace WinDock
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
         [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
-        [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-        [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
-        [DllImport("user32.dll")] public static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
-        [DllImport("user32.dll")] public static extern bool SetThreadDesktop(IntPtr hDesktop);
         public delegate IntPtr HookProc(int code, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] public static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr mod, uint thread);
         [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr h);
@@ -2158,6 +2153,19 @@ namespace WinDock
                         {
                             name = System.IO.Path.GetFileNameWithoutExtension(path);
                             try { var desc = FileVersionInfo.GetVersionInfo(path).FileDescription; if (!string.IsNullOrWhiteSpace(desc)) name = desc.Trim(); } catch { }
+                        }
+                        if (string.IsNullOrEmpty(path) && pid > 0)
+                        {
+                            try
+                            {
+                                var proc = Process.GetProcessById((int)pid);
+                                if (proc != null)
+                                {
+                                    name = proc.ProcessName;
+                                    try { path = proc.MainModule.FileName; } catch { }
+                                }
+                            }
+                            catch { }
                         }
                         string dn; if (ctl.GetDisplayName(out dn) == 0 && !string.IsNullOrWhiteSpace(dn) && !dn.StartsWith("@")) name = dn;
                         if (string.IsNullOrEmpty(name)) name = "PID " + pid;
@@ -6791,7 +6799,7 @@ namespace WinDock
     // Inline-Schieberegler in der Kachel (z. B. Lautstärke, Helligkeit, Lautsprecher)
     public class SliderTile : Tile
     {
-        readonly Border fill, icBg, sep;
+        readonly Border fill, icBg, sep, chevBg;
         readonly TextBlock ic, title, sub, chev;
         readonly Grid rootGrid, contentGrid;
         readonly bool hasChevron;
@@ -6823,7 +6831,7 @@ namespace WinDock
             };
             rootGrid.Children.Add(fill);
 
-            contentGrid = U.G(null, new[] { U.Px(32), U.Star(1), U.Auto });
+            contentGrid = U.G(null, new[] { U.Px(36), U.Star(1), U.Px(38) });
             contentGrid.Margin = new Thickness(8, 0, chevron ? 6 : 8, 0);
 
             icBg = new Border
@@ -6864,15 +6872,28 @@ namespace WinDock
                 Orientation = Orientation.Horizontal,
                 Visibility = chevron ? Visibility.Visible : Visibility.Collapsed,
                 VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right,
                 Cursor = Cursors.Hand
             };
-            sep = new Border { Width = 1, Height = 20, Background = Th.Faint };
-            chev = U.I("", 9, Th.Muted);
-            chev.Margin = new Thickness(6, 0, 2, 0);
+            sep = new Border { Width = 1, Height = 20, Background = Th.Faint, Margin = new Thickness(0, 0, 4, 0) };
+            chevBg = new Border
+            {
+                Width = 28, Height = 28,
+                CornerRadius = new CornerRadius(14),
+                Background = Th.B(Th.A(Th.TextC, 18)),
+                Cursor = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                ToolTip = "Volume mixer & App volumes"
+            };
+            chev = U.I("\uE76C", 10, Th.Text);
+            chev.HorizontalAlignment = HorizontalAlignment.Center;
+            chev.VerticalAlignment = VerticalAlignment.Center;
+            chevBg.Child = chev;
+            chevBg.MouseEnter += (s, e) => { chevBg.Background = Th.B(Th.A(Th.TextC, 40)); chev.Foreground = Th.Text; };
+            chevBg.MouseLeave += (s, e) => { chevBg.Background = Th.B(Th.A(Th.TextC, 18)); chev.Foreground = Th.Text; };
             right.Children.Add(sep);
-            right.Children.Add(chev);
-            right.MouseEnter += (s, e) => { chev.Foreground = Th.Text; };
-            right.MouseLeave += (s, e) => { chev.Foreground = Th.Muted; };
+            right.Children.Add(chevBg);
             U.Put(contentGrid, right, 0, 2);
 
             rootGrid.Children.Add(contentGrid);
@@ -6887,20 +6908,18 @@ namespace WinDock
 
             PreviewMouseLeftButtonDown += (s, e) =>
             {
+                if (e.ClickCount >= 2 && hasChevron)
+                {
+                    if (ChevronClick != null) ChevronClick();
+                    e.Handled = true;
+                    return;
+                }
                 startPt = e.GetPosition(this);
-                isIconArea = startPt.X <= 42;
-                isChevArea = hasChevron && startPt.X >= ActualWidth - 28;
-                if (!isIconArea && !isChevArea)
-                {
-                    dragging = true;
-                    CaptureMouse();
-                    SetFromX(startPt.X);
-                }
-                else
-                {
-                    potentialClick = true;
-                    CaptureMouse();
-                }
+                isIconArea = startPt.X <= 44;
+                isChevArea = hasChevron && startPt.X >= ActualWidth - 44;
+                potentialClick = true;
+                dragging = false;
+                CaptureMouse();
                 e.Handled = true;
             };
 
@@ -6909,11 +6928,14 @@ namespace WinDock
                 var p = e.GetPosition(this);
                 if (potentialClick)
                 {
-                    if (Math.Abs(p.X - startPt.X) > 4 || Math.Abs(p.Y - startPt.Y) > 4)
+                    if (Math.Abs(p.X - startPt.X) > 4)
                     {
                         potentialClick = false;
-                        dragging = true;
-                        SetFromX(p.X);
+                        if (!isIconArea && !isChevArea)
+                        {
+                            dragging = true;
+                            SetFromX(p.X);
+                        }
                     }
                 }
                 else if (dragging)
@@ -6930,7 +6952,8 @@ namespace WinDock
                 {
                     potentialClick = false;
                     if (isIconArea && IconClick != null) IconClick();
-                    else if (isChevArea && ChevronClick != null) ChevronClick();
+                    else if (hasChevron && ChevronClick != null) ChevronClick();
+                    else if (IconClick != null) IconClick();
                 }
                 dragging = false;
                 e.Handled = true;
@@ -6977,7 +7000,7 @@ namespace WinDock
             sub.Foreground = on ? Th.Text : Th.Muted;
             sub.Text = subText;
             ic.Foreground = on ? Th.Text : Th.Muted;
-            chev.Foreground = Th.Muted;
+            chev.Foreground = on ? Th.Text : Th.Muted;
             sep.Background = Th.Faint;
             fill.Background = Th.Accent;
             fill.Opacity = on ? (IsMouseOver ? 0.44 : 0.32) : 0.12;
@@ -7468,7 +7491,7 @@ namespace WinDock
                     var fe = target as FrameworkElement;
                     double w = fe != null ? fe.ActualWidth : 100;
                     double h = fe != null ? fe.ActualHeight : 48;
-                    r = new Rect(p.X / sc, p.Y / sc, w * Th.K, h * Th.K);
+                    r = new Rect(p.X / sc, p.Y / sc, w, h);
                 }
                 else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
                 AudioFlyout.Toggle(App, r);
@@ -10142,7 +10165,7 @@ namespace WinDock
         {
             var tasks = JumpLists.For(exe);
             if (tasks.Count == 0) return;
-            items.Add(MI.Head(Loc.Tr("Aufgaben")));
+            items.Add(MI.Head("Tasks"));
             foreach (var t in tasks.Take(10))
             {
                 var tt = t;
@@ -12239,7 +12262,7 @@ namespace WinDock
             {
                 Background = Th.Bg, CornerRadius = new CornerRadius(18), Padding = new Thickness(10), Margin = new Thickness(16),
                 LayoutTransform = new ScaleTransform(Th.K, Th.K),
-                Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, MaxHeight = 620, Focusable = false },
+                Child = new ScrollViewer { Content = sp, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560, Focusable = false },
                 Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
             };
             SourceInitialized += (s, e) => { hwnd = new WindowInteropHelper(this).Handle; N.AddExStyle(hwnd, 0x80); };
@@ -12257,6 +12280,10 @@ namespace WinDock
         public static void Toggle(WinDockApp a, Rect anchorScreen)
         {
             if (Current != null) { Current.CloseFlyout(); return; }
+            if (WifiFlyout.Current != null) WifiFlyout.Current.CloseFlyout();
+            if (BluetoothFlyout.Current != null) BluetoothFlyout.Current.CloseFlyout();
+            if (TrayFlyout.Current != null) TrayFlyout.Current.CloseFlyout();
+            if (CastFlyout.Current != null) CastFlyout.Current.CloseFlyout();
             if (MenuWindow.Current != null) MenuWindow.Current.CloseMenu();
             var f = new AudioFlyout(a, anchorScreen);
             Current = f;
@@ -12367,6 +12394,8 @@ namespace WinDock
                 if (icon == null) icon = a.System ? (UIElement)U.I("\uE767", 14, Th.Muted) : U.Letter(a.Name, 22);
                 U.Put(g, icon, 0, 0);
                 var name = U.T(a.Name, 13, Th.Text, FontWeights.SemiBold);
+                name.TextTrimming = TextTrimming.CharacterEllipsis;
+                name.ToolTip = a.Name;
                 U.Put(g, name, 0, 1);
                 var bar = new SeekBar { Margin = new Thickness(8, 0, 8, 0) };
                 var pct = U.T("", 12, Th.Muted, FontWeights.SemiBold); pct.HorizontalAlignment = HorizontalAlignment.Right;
@@ -12990,118 +13019,6 @@ namespace WinDock
             }
             catch { }
         }
-
-        public static bool TriggerNativeClick(SystrayItem item, bool isRightClick, int clickX, int clickY)
-        {
-            if (item == null) return false;
-            try
-            {
-                IntPtr hDesk = N.OpenDesktop("Default", 0, false, 0x01FF);
-                if (hDesk != IntPtr.Zero) N.SetThreadDesktop(hDesk);
-
-                // 1. Try Shell_TrayWnd
-                IntPtr hTray = N.FindWindow("Shell_TrayWnd", null);
-                if (hTray != IntPtr.Zero)
-                {
-                    bool wasVis = N.IsWindowVisible(hTray);
-                    if (!wasVis) N.ShowWindow(hTray, 5); // SW_SHOW
-                    Thread.Sleep(30);
-
-                    IntPtr hBridge = N.FindWindowEx(hTray, IntPtr.Zero, "Windows.UI.Composition.DesktopWindowContentBridge", null);
-                    IntPtr target = hBridge != IntPtr.Zero ? hBridge : hTray;
-                    var el = AutomationElement.FromHandle(target);
-                    if (el != null)
-                    {
-                        var cond = new PropertyCondition(AutomationElement.AutomationIdProperty, "NotifyItemIcon");
-                        var icons = el.FindAll(TreeScope.Descendants, cond);
-                        foreach (AutomationElement icon in icons)
-                        {
-                            string n = icon.Current.Name;
-                            if (Matches(n, item.Title, item.ProcessName))
-                            {
-                                var r = icon.Current.BoundingRectangle;
-                                if (r.Width > 0 && r.Height > 0)
-                                {
-                                    int cx = (int)(r.X + r.Width / 2);
-                                    int cy = (int)(r.Y + r.Height / 2);
-                                    ClickAt(cx, cy, isRightClick);
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 2. Try Overflow (TopLevelWindowForOverflowXamlIsland)
-                IntPtr hOverflow = N.FindWindow("TopLevelWindowForOverflowXamlIsland", null);
-                if (hOverflow != IntPtr.Zero)
-                {
-                    int ox = Math.Max(10, clickX - 100);
-                    int oy = Math.Max(10, clickY - 100);
-                    N.SetWindowPos(hOverflow, IntPtr.Zero, ox, oy, 320, 320, 0x0040); // SWP_SHOWWINDOW
-                    Thread.Sleep(80);
-
-                    IntPtr hBridge = N.FindWindowEx(hOverflow, IntPtr.Zero, "Windows.UI.Composition.DesktopWindowContentBridge", null);
-                    IntPtr target = hBridge != IntPtr.Zero ? hBridge : hOverflow;
-                    var el = AutomationElement.FromHandle(target);
-                    if (el != null)
-                    {
-                        var cond = new PropertyCondition(AutomationElement.AutomationIdProperty, "NotifyItemIcon");
-                        var icons = el.FindAll(TreeScope.Descendants, cond);
-                        foreach (AutomationElement icon in icons)
-                        {
-                            string n = icon.Current.Name;
-                            if (Matches(n, item.Title, item.ProcessName))
-                            {
-                                var r = icon.Current.BoundingRectangle;
-                                if (r.Width > 0 && r.Height > 0)
-                                {
-                                    int cx = (int)(r.X + r.Width / 2);
-                                    int cy = (int)(r.Y + r.Height / 2);
-                                    ClickAt(cx, cy, isRightClick);
-                                    Thread.Sleep(60);
-                                    N.ShowWindow(hOverflow, 0);
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex) { WinDockApp.Log(ex); }
-            return false;
-        }
-
-        static void ClickAt(int cx, int cy, bool isRightClick)
-        {
-            N.SetCursorPos(cx, cy);
-            if (isRightClick)
-            {
-                N.mouse_event(0x0008, 0, 0, 0, UIntPtr.Zero);
-                N.mouse_event(0x0010, 0, 0, 0, UIntPtr.Zero);
-            }
-            else
-            {
-                N.mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
-                N.mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
-            }
-        }
-
-        static bool Matches(string name, string title, string procName)
-        {
-            if (string.IsNullOrEmpty(name)) return false;
-            if (!string.IsNullOrEmpty(title))
-            {
-                if (name.IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-                if (title.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            }
-            if (!string.IsNullOrEmpty(procName))
-            {
-                if (name.IndexOf(procName, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-                if (procName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return true;
-            }
-            return false;
-        }
     }
 
     // -----------------------------------------------------------------
@@ -13363,16 +13280,8 @@ namespace WinDock
                     b.ToolTip = it.Title;
                     b.Click += () =>
                     {
-                        var pt = b.PointToScreen(new Point(b.ActualWidth / 2, b.ActualHeight / 2));
                         CloseFlyout();
-                        ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            bool ok = SystrayReader.TriggerNativeClick(it, false, (int)pt.X, (int)pt.Y);
-                            if (!ok)
-                            {
-                                Dispatcher.BeginInvoke(new Action(() => SystrayReader.Activate(it)));
-                            }
-                        });
+                        SystrayReader.Activate(it);
                     };
                     b.MouseRightButtonUp += (s, e) =>
                     {
@@ -13380,73 +13289,79 @@ namespace WinDock
                         var screenPt = PointToScreen(pt);
                         CloseFlyout();
 
-                        ThreadPool.QueueUserWorkItem(_ =>
+                        var mis = new List<MI>();
+                        mis.Add(MI.Head(it.Title));
+
+                        if (!string.IsNullOrEmpty(it.ExePath) && File.Exists(it.ExePath))
                         {
-                            bool triggered = SystrayReader.TriggerNativeClick(it, true, (int)screenPt.X, (int)screenPt.Y);
-                            if (!triggered)
+                            var tasks = JumpLists.For(it.ExePath);
+                            if (tasks.Count > 0)
                             {
-                                Dispatcher.BeginInvoke(new Action(() =>
+                                foreach (var t in tasks.Take(10))
                                 {
-                                    var mis = new List<MI>();
-                                    mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () => SystrayReader.Activate(it)));
+                                    var tt = t;
+                                    mis.Add(MI.Item(tt.Title, "\uE768", () => JumpLists.Run(tt)));
+                                }
+                                mis.Add(MI.Sep());
+                            }
+                        }
 
-                                    var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
-                                    bool isPinned = !string.IsNullOrEmpty(it.ExePath) && pl.Contains(it.ExePath);
-                                    if (!string.IsNullOrEmpty(it.ExePath) && File.Exists(it.ExePath))
-                                    {
-                                        mis.Add(MI.Item(isPinned ? "Unpin from pill" : "Pin to pill", isPinned ? "\uE77A" : "\uE718", () =>
-                                        {
-                                            var curList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
-                                            if (isPinned) curList.Remove(it.ExePath);
-                                            else if (!curList.Contains(it.ExePath)) curList.Add(it.ExePath);
-                                            app.Store.Set("pill.pinned", curList);
-                                            if (app.Pill != null) app.Pill.RefreshWindowsSoon();
-                                        }));
-                                        mis.Add(MI.Item("Run as administrator", "\uE7EF", () =>
-                                        {
-                                            try { Process.Start(new ProcessStartInfo(it.ExePath) { Verb = "runas", UseShellExecute = true }); } catch { }
-                                        }));
-                                        mis.Add(MI.Item("Open file location", "\uE838", () =>
-                                        {
-                                            try { Process.Start("explorer.exe", "/select,\"" + it.ExePath + "\""); } catch { }
-                                        }));
-                                    }
+                        mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () => SystrayReader.Activate(it)));
 
-                                    mis.Add(MI.Sep());
-                                    mis.Add(MI.Item("Close / End Process", "\uE711", () =>
+                        var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                        bool isPinned = !string.IsNullOrEmpty(it.ExePath) && pl.Contains(it.ExePath);
+                        if (!string.IsNullOrEmpty(it.ExePath) && File.Exists(it.ExePath))
+                        {
+                            mis.Add(MI.Item(isPinned ? "Unpin from pill" : "Pin to pill", isPinned ? "\uE77A" : "\uE718", () =>
+                            {
+                                var curList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                                if (isPinned) curList.Remove(it.ExePath);
+                                else if (!curList.Contains(it.ExePath)) curList.Add(it.ExePath);
+                                app.Store.Set("pill.pinned", curList);
+                                if (app.Pill != null) app.Pill.RefreshWindowsSoon();
+                            }));
+                            mis.Add(MI.Item("Run as administrator", "\uE7EF", () =>
+                            {
+                                try { Process.Start(new ProcessStartInfo(it.ExePath) { Verb = "runas", UseShellExecute = true }); } catch { }
+                            }));
+                            mis.Add(MI.Item("Open file location", "\uE838", () =>
+                            {
+                                try { Process.Start("explorer.exe", "/select,\"" + it.ExePath + "\""); } catch { }
+                            }));
+                        }
+
+                        mis.Add(MI.Sep());
+                        mis.Add(MI.Item("Close / End Process", "\uE711", () =>
+                        {
+                            try
+                            {
+                                if (it.MainWindowHandle != IntPtr.Zero)
+                                {
+                                    N.PostMessage(it.MainWindowHandle, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                                }
+                                if (it.Pid > 0)
+                                {
+                                    ThreadPool.QueueUserWorkItem(_2 =>
                                     {
                                         try
                                         {
-                                            if (it.MainWindowHandle != IntPtr.Zero)
+                                            var proc = Process.GetProcessById((int)it.Pid);
+                                            if (!proc.HasExited)
                                             {
-                                                N.PostMessage(it.MainWindowHandle, 0x0010, IntPtr.Zero, IntPtr.Zero);
-                                            }
-                                            if (it.Pid > 0)
-                                            {
-                                                ThreadPool.QueueUserWorkItem(_2 =>
-                                                {
-                                                    try
-                                                    {
-                                                        var proc = Process.GetProcessById((int)it.Pid);
-                                                        if (!proc.HasExited)
-                                                        {
-                                                            proc.CloseMainWindow();
-                                                            if (!proc.WaitForExit(600)) proc.Kill();
-                                                        }
-                                                    }
-                                                    catch { }
-                                                });
+                                                proc.CloseMainWindow();
+                                                if (!proc.WaitForExit(600)) proc.Kill();
                                             }
                                         }
                                         catch { }
-                                    }));
-
-                                    double sc = WinDockApp.Scale();
-                                    var at = new Point(screenPt.X / sc, screenPt.Y / sc);
-                                    new MenuWindow(app, mis, app.Pill.MenuAnchor(at)).Open();
-                                }));
+                                    });
+                                }
                             }
-                        });
+                            catch { }
+                        }));
+
+                        double sc = WinDockApp.Scale();
+                        var at = new Point(screenPt.X / sc, screenPt.Y / sc);
+                        new MenuWindow(app, mis, at).Open();
                         e.Handled = true;
                     };
                     trayWrap.Children.Add(b);
