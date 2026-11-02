@@ -7990,7 +7990,47 @@ namespace WinDock
         public string Name, Uri, Subtitle, Keywords;
     }
 
-    public class AppsTab : TabBase
+        public static class WindowsSearch
+    {
+        public static List<string> Query(string query, int maxResults)
+        {
+            var list = new List<string>();
+            if (string.IsNullOrWhiteSpace(query)) return list;
+            string clean = query.Replace("'", "''").Replace("[", "[[]").Trim();
+            if (clean.Length == 0) return list;
+
+            try
+            {
+                using (var conn = new System.Data.OleDb.OleDbConnection("Provider=Search.CollatorDSO;Extended Properties='Application=Windows';"))
+                {
+                    conn.Open();
+                    string sql = string.Format(
+                        "SELECT TOP {0} System.ItemName, System.ItemPathDisplay FROM SYSTEMINDEX WHERE SCOPE='file:' AND System.ItemName LIKE '%{1}%'",
+                        maxResults, clean);
+                    using (var cmd = new System.Data.OleDb.OleDbCommand(sql, conn))
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        while (r.Read())
+                        {
+                            object p = r["System.ItemPathDisplay"];
+                            if (p != null && p != DBNull.Value)
+                            {
+                                string fpath = Convert.ToString(p);
+                                if (!string.IsNullOrEmpty(fpath) && (System.IO.File.Exists(fpath) || System.IO.Directory.Exists(fpath)))
+                                {
+                                    list.Add(fpath);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+    }
+
+public class AppsTab : TabBase
     {
         public override string Id { get { return "apps"; } }
         public override string Title { get { return "Apps"; } }
@@ -8020,6 +8060,7 @@ namespace WinDock
         readonly WrapPanel chips;
         readonly SelList list = new SelList();
         readonly List<AppEntry> rowApps = new List<AppEntry>();
+        readonly Dictionary<int, string> rowFiles = new Dictionary<int, string>();
         List<AppEntry> pending = new List<AppEntry>();
         int pendingAt;
         HashSet<string> starred = new HashSet<string>();
@@ -8131,9 +8172,42 @@ namespace WinDock
 
         void ShowMenu(int i, Point at)
         {
-            if (i < 0 || i >= rowApps.Count || rowApps[i] == null) return;
-            var a = rowApps[i];
-            new MenuWindow(App, AppMenus.ForApp(App, a, () => Launch(a), () => ToggleStar(a), starred.Contains(a.Parse)), at).Open();
+            if (i < 0) return;
+            if (i < rowApps.Count && rowApps[i] != null)
+            {
+                var a = rowApps[i];
+                new MenuWindow(App, AppMenus.ForApp(App, a, () => Launch(a), () => ToggleStar(a), starred.Contains(a.Parse)), at).Open();
+                return;
+            }
+            string fpath;
+            if (rowFiles.TryGetValue(i, out fpath))
+            {
+                bool isDir = System.IO.Directory.Exists(fpath);
+                var mis = new List<MI>
+                {
+                    MI.Item("Open", "\uE768", () =>
+                    {
+                        App.ClosePanel();
+                        try { Process.Start(new ProcessStartInfo(fpath) { UseShellExecute = true }); } catch { }
+                    }),
+                    MI.Item("Open containing folder", "\uE838", () =>
+                    {
+                        App.ClosePanel();
+                        try
+                        {
+                            if (isDir) Process.Start(new ProcessStartInfo(fpath) { UseShellExecute = true });
+                            else Process.Start("explorer.exe", "/select,\"" + fpath + "\"");
+                        }
+                        catch { }
+                    }),
+                    MI.Item("Copy path", "\uE8C8", () =>
+                    {
+                        try { Clipboard.SetText(fpath); } catch { }
+                        App.Pill.Flash("Path copied", 1.2, false);
+                    })
+                };
+                new MenuWindow(App, mis, at).Open();
+            }
         }
 
         void ToggleStar(AppEntry a)
@@ -8148,7 +8222,7 @@ namespace WinDock
 
         void Rebuild()
         {
-            list.Clear(); rowApps.Clear();
+            list.Clear(); rowApps.Clear(); rowFiles.Clear();
             pending = new List<AppEntry>(); pendingAt = 0;
             string q = sb.Tb.Text.Trim().ToLowerInvariant();
             var all = App.Apps.All;
@@ -8176,7 +8250,7 @@ namespace WinDock
                               .Where(x => x.s > 0).OrderByDescending(x => x.s).Take(10).Select(x => x.a).ToList();
                 if (hits.Count > 0)
                 {
-                    list.Add(U.Section(Loc.Tr("Apps")));
+                    list.Add(U.Section("Apps"));
                     foreach (var a in hits) AddApp(a);
                 }
 
@@ -8187,20 +8261,20 @@ namespace WinDock
                     .Take(5).ToList();
                 if (matchSettings.Count > 0)
                 {
-                    list.Add(U.Section(Loc.Tr("Einstellungen")));
+                    list.Add(U.Section("Settings"));
                     foreach (var s in matchSettings) AddSetting(s);
                 }
 
                 // 3. User Files & Documents
-                var matchFiles = FindUserFiles(q, 6);
+                var matchFiles = FindUserFiles(q, 8);
                 if (matchFiles.Count > 0)
                 {
-                    list.Add(U.Section(Loc.Tr("Dateien & Dokumente")));
+                    list.Add(U.Section("Files & Documents"));
                     foreach (var f in matchFiles) AddFile(f);
                 }
 
                 // 4. Online Search (Google)
-                list.Add(U.Section(Loc.Tr("Websuche")));
+                list.Add(U.Section("Web Search"));
                 AddWeb(sb.Tb.Text.Trim());
             }
             if (list.Count > 0) list.Select(0);
@@ -8317,10 +8391,31 @@ namespace WinDock
         List<string> FindUserFiles(string q, int max)
         {
             var res = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. Native Windows Search Indexer (collator DSO)
+            try
+            {
+                var indexed = WindowsSearch.Query(q, max);
+                foreach (var f in indexed)
+                {
+                    if (seen.Add(f))
+                    {
+                        res.Add(f);
+                        if (res.Count >= max) return res;
+                    }
+                }
+            }
+            catch { }
+
+            // 2. Direct directory search fallback
             var dirs = new List<string>();
             try { dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.Desktop)); } catch { }
             try { dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)); } catch { }
             try { dirs.Add(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")); } catch { }
+            try { dirs.Add(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Documents")); } catch { }
+            try { dirs.Add(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "OneDrive", "Documents")); } catch { }
+            try { dirs.Add(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "OneDrive", "Desktop")); } catch { }
             try { dirs.Add(Environment.GetFolderPath(Environment.SpecialFolder.Recent)); } catch { }
 
             foreach (var dir in dirs)
@@ -8333,8 +8428,23 @@ namespace WinDock
                         string fn = System.IO.Path.GetFileName(f);
                         if (fn.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            res.Add(f);
-                            if (res.Count >= max) return res;
+                            string target = f;
+                            if (f.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try
+                                {
+                                    var ps = NX.StoreFor(f);
+                                    string t = NX.PropString(ps, new Guid("B9B4B3FC-2B51-4A42-B5D8-324146AFCF25"), 2);
+                                    if (ps != null) Marshal.ReleaseComObject(ps);
+                                    if (!string.IsNullOrEmpty(t) && (File.Exists(t) || Directory.Exists(t))) target = t;
+                                }
+                                catch { }
+                            }
+                            if (seen.Add(target))
+                            {
+                                res.Add(target);
+                                if (res.Count >= max) return res;
+                            }
                         }
                     }
                 }
@@ -8355,7 +8465,7 @@ namespace WinDock
             sp.Children.Add(nameTb); sp.Children.Add(subTb);
             U.Put(g, sp, 0, 2);
 
-            U.Put(g, U.T(Loc.Tr("Einstellung"), 11.5, Th.Muted, FontWeights.SemiBold), 0, 3);
+            U.Put(g, U.T("Setting", 11.5, Th.Muted, FontWeights.SemiBold), 0, 3);
             rowApps.Add(null);
             list.AddRow(SelList.Row(g, 46), () => { App.ClosePanel(); AppIndex.Open(s.Uri); }, Brushes.Transparent);
         }
@@ -8363,20 +8473,45 @@ namespace WinDock
         void AddFile(string filePath)
         {
             var g = U.G(null, new[] { U.Px(32), U.Px(12), U.Star(1), U.Auto });
-            var ic = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Th.Surface2, Child = U.I("\uE8A5", 13, Th.Text) };
-            U.Put(g, ic, 0, 0);
+            var iconHost = new Border { Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Th.Surface2 };
+            bool isDir = System.IO.Directory.Exists(filePath);
+
+            Action setIcon = () =>
+            {
+                ImageSource ic = null;
+                try { ic = N.ShellIcon(filePath, 32); } catch { }
+                if (ic != null)
+                {
+                    iconHost.Child = new Image { Source = ic, Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                }
+                else
+                {
+                    iconHost.Child = U.I(isDir ? "\uE8B7" : "\uE8A5", 13, Th.Text);
+                }
+            };
+            setIcon();
+            U.Put(g, iconHost, 0, 0);
 
             var sp = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             var nameTb = U.T(System.IO.Path.GetFileName(filePath), 14, Th.Text, FontWeights.SemiBold);
+            if (string.IsNullOrEmpty(nameTb.Text)) nameTb.Text = filePath;
             nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
-            var subTb = U.T(System.IO.Path.GetDirectoryName(filePath), 11, Th.Muted);
+            var dirName = System.IO.Path.GetDirectoryName(filePath);
+            var subTb = U.T(!string.IsNullOrEmpty(dirName) ? dirName : filePath, 11, Th.Muted);
             subTb.TextTrimming = TextTrimming.CharacterEllipsis;
             sp.Children.Add(nameTb); sp.Children.Add(subTb);
             U.Put(g, sp, 0, 2);
 
-            U.Put(g, U.T(Loc.Tr("Datei"), 11.5, Th.Muted, FontWeights.SemiBold), 0, 3);
+            string kindStr = isDir ? "Folder" : (System.IO.Path.GetExtension(filePath).TrimStart('.').ToUpperInvariant() + " File");
+            if (kindStr == " File" || kindStr.Length == 0) kindStr = "File";
+            U.Put(g, U.T(kindStr, 11.5, Th.Muted, FontWeights.SemiBold), 0, 3);
+            
+            int rIdx = rowApps.Count;
             rowApps.Add(null);
-            list.AddRow(SelList.Row(g, 46), () =>
+            rowFiles[rIdx] = filePath;
+
+            var row = SelList.Row(g, 46);
+            list.AddRow(row, () =>
             {
                 App.ClosePanel();
                 try { Process.Start(new ProcessStartInfo(filePath) { UseShellExecute = true }); } catch { }
