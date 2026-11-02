@@ -2197,6 +2197,22 @@ namespace WinDock
             catch { return -1; }
         }
 
+        public static event Action<double, bool> VolumeChanged;
+
+        public static void FireVolumeChanged()
+        {
+            try
+            {
+                if (VolumeChanged != null)
+                {
+                    double v = Get();
+                    bool m = Muted();
+                    VolumeChanged(v, m);
+                }
+            }
+            catch { }
+        }
+
         public static void Set(double v)
         {
             try
@@ -2206,6 +2222,7 @@ namespace WinDock
                 e.SetMasterVolumeLevelScalar((float)Math.Max(0, Math.Min(1, v)), ref g);
                 bool m; e.GetMute(out m);
                 if (m && v > 0) e.SetMute(false, ref g);
+                FireVolumeChanged();
             }
             catch { }
         }
@@ -2218,7 +2235,7 @@ namespace WinDock
 
         public static void ToggleMute()
         {
-            try { var e = Ep(); if (e == null) return; bool m; e.GetMute(out m); Guid g = Guid.Empty; e.SetMute(!m, ref g); }
+            try { var e = Ep(); if (e == null) return; bool m; e.GetMute(out m); Guid g = Guid.Empty; e.SetMute(!m, ref g); FireVolumeChanged(); }
             catch { }
         }
 
@@ -2410,6 +2427,14 @@ namespace WinDock
                 bool up = msg == 0x101 || msg == 0x105;
                 if (!injected)
                 {
+                    if (down && (k.vkCode == 0xAF || k.vkCode == 0xAE || k.vkCode == 0xAD))
+                    {
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            Thread.Sleep(35);
+                            Audio.FireVolumeChanged();
+                        });
+                    }
                     bool isWin = k.vkCode == 0x5B || k.vkCode == 0x5C;
                     if (isWin)
                     {
@@ -3656,32 +3681,62 @@ namespace WinDock
     {
         const string BasePath = @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\";
 
-        public static bool IsInUse(string capability)
+        public static bool IsInUse(string capability, out string activeAppName)
         {
+            activeAppName = null;
             try
             {
-                using (var k = Registry.CurrentUser.OpenSubKey(BasePath + capability))
-                {
-                    if (k == null) return false;
-                    return ScanKey(k);
-                }
+                if (ScanRoot(Registry.CurrentUser, capability, out activeAppName)) return true;
+                if (ScanRoot(Registry.LocalMachine, capability, out activeAppName)) return true;
             }
-            catch { return false; }
+            catch { }
+            return false;
         }
 
-        static bool ScanKey(RegistryKey key)
+        public static bool IsInUse(string capability)
         {
-            var start = key.GetValue("LastUsedTimeStart");
-            var stop = key.GetValue("LastUsedTimeStop");
-            if (start != null && stop != null)
+            string name;
+            return IsInUse(capability, out name);
+        }
+
+        static bool ScanRoot(RegistryKey root, string capability, out string activeAppName)
+        {
+            activeAppName = null;
+            if (root == null) return false;
+            string[] caps = capability == "webcam" ? new[] { "webcam", "camera" } : new[] { capability };
+            foreach (var cap in caps)
             {
                 try
                 {
-                    long tStart = Convert.ToInt64(start);
-                    long tStop = Convert.ToInt64(stop);
-                    if (tStop == 0 || tStart > tStop) return true;
+                    using (var k = root.OpenSubKey(BasePath + cap))
+                    {
+                        if (k != null && ScanKey(k, out activeAppName)) return true;
+                    }
                 }
                 catch { }
+            }
+            return false;
+        }
+
+        static bool ScanKey(RegistryKey key, out string activeAppName)
+        {
+            activeAppName = null;
+            var start = key.GetValue("LastUsedTimeStart");
+            var stop = key.GetValue("LastUsedTimeStop");
+            if (start != null)
+            {
+                long tStart = ToLong(start);
+                long tStop = ToLong(stop);
+                if (tStart > 0 && (tStop == 0 || tStart > tStop))
+                {
+                    string kName = Path.GetFileName(key.Name);
+                    string proc = CleanProcName(kName);
+                    if (string.IsNullOrEmpty(proc) || IsProcessRunning(proc))
+                    {
+                        activeAppName = !string.IsNullOrEmpty(proc) ? proc : "App";
+                        return true;
+                    }
+                }
             }
             foreach (var subName in key.GetSubKeyNames())
             {
@@ -3689,12 +3744,55 @@ namespace WinDock
                 {
                     using (var sub = key.OpenSubKey(subName))
                     {
-                        if (sub != null && ScanKey(sub)) return true;
+                        if (sub != null && ScanKey(sub, out activeAppName)) return true;
                     }
                 }
                 catch { }
             }
             return false;
+        }
+
+        static long ToLong(object val)
+        {
+            if (val == null) return 0;
+            if (val is long) return (long)val;
+            if (val is int) return (int)val;
+            if (val is byte[])
+            {
+                byte[] b = (byte[])val;
+                if (b.Length >= 8) return BitConverter.ToInt64(b, 0);
+            }
+            try { return Convert.ToInt64(val); } catch { return 0; }
+        }
+
+        static string CleanProcName(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "";
+            if (raw.Contains("#"))
+            {
+                string s = raw.Replace('#', '\\');
+                return Path.GetFileNameWithoutExtension(s);
+            }
+            int idx = raw.IndexOf('_');
+            if (idx > 0) return raw.Substring(0, idx);
+            return raw;
+        }
+
+        static bool IsProcessRunning(string procName)
+        {
+            try
+            {
+                var procs = Process.GetProcessesByName(procName);
+                if (procs != null && procs.Length > 0) return true;
+                if (procName.Contains("."))
+                {
+                    string shortName = procName.Substring(procName.LastIndexOf('.') + 1);
+                    var p2 = Process.GetProcessesByName(shortName);
+                    if (p2 != null && p2.Length > 0) return true;
+                }
+                return false;
+            }
+            catch { return true; }
         }
     }
 
@@ -3713,6 +3811,9 @@ namespace WinDock
         public readonly Countdown Timer = new Countdown();
         public IntPtr PrevForeground;
         public bool FullscreenActive, MicMuted, MicInUse, CamInUse;
+        public string CamActiveApp;
+        double lastPolledVol = -1;
+        bool lastPolledMute;
         public string BaseDir, DataDir;
 
         KeyHook hook;
@@ -3764,6 +3865,13 @@ namespace WinDock
                 if (ForegroundChanged != null) ForegroundChanged(hw);
             };
             fgHook = N.SetWinEventHook(0x0003, 0x0003, IntPtr.Zero, fgProc, 0, 0, 0);
+
+            Audio.VolumeChanged += (v, m) =>
+            {
+                lastPolledVol = v;
+                lastPolledMute = m;
+                Dispatcher.BeginInvoke(new Action(() => VolumeOsd.ShowVolume(v, m, this)));
+            };
 
             BuildWindows();
             ApplySystem();
@@ -3909,8 +4017,29 @@ namespace WinDock
             ApplyWorkArea();
             Pill.KeepTopmost();
             if (Cfg.B("pill.showMicMuted", true)) MicMuted = Audio.MicMuted();
+            string camApp;
+            bool wasCam = CamInUse, wasMic = MicInUse;
             MicInUse = SensorMonitor.IsInUse("microphone");
-            CamInUse = SensorMonitor.IsInUse("webcam");
+            CamInUse = SensorMonitor.IsInUse("webcam", out camApp);
+            CamActiveApp = camApp;
+            if (wasCam != CamInUse || wasMic != MicInUse)
+            {
+                if (Pill != null) Pill.Refresh();
+            }
+
+            double curVol = Audio.Get();
+            bool curMute = Audio.Muted();
+            if (lastPolledVol >= 0 && (Math.Abs(curVol - lastPolledVol) > 0.008 || curMute != lastPolledMute))
+            {
+                lastPolledVol = curVol;
+                lastPolledMute = curMute;
+                Dispatcher.BeginInvoke(new Action(() => VolumeOsd.ShowVolume(curVol, curMute, this)));
+            }
+            else
+            {
+                lastPolledVol = curVol;
+                lastPolledMute = curMute;
+            }
             if ((Cfg.B("pill.showWeather", true) || Cfg.B("today.showWeather", true)) && (DateTime.Now - Weather.Fetched).TotalMinutes >= 20)
             {
                 Weather.FetchAsync(Cfg.S("today.weatherCity", "Berlin"), Cfg.S("today.weatherUnit", "C") == "F", () => { if (Pill != null) Pill.Refresh(); });
@@ -4639,9 +4768,10 @@ namespace WinDock
             micBtn.Click += () => { if (app.MicMuted) { Audio.SetMicMuted(false); app.MicMuted = false; Refresh(); } };
             micBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
-            camBtn = new Btn(U.I("\uE722", fs, Th.B(Color.FromRgb(255, 170, 40))), Th.B(Color.FromArgb(40, 255, 170, 40)), Th.B(Color.FromArgb(70, 255, 170, 40)), (h - 10) / 2, new Thickness(7, 3, 7, 3));
+            camBtn = new Btn(U.I("\uE722", fs, Th.B(Color.FromRgb(30, 215, 96))), Th.B(Color.FromArgb(40, 30, 215, 96)), Th.B(Color.FromArgb(70, 30, 215, 96)), (h - 10) / 2, new Thickness(7, 3, 7, 3));
             camBtn.Visibility = Visibility.Collapsed;
             camBtn.ToolTip = "Camera active";
+            camBtn.Click += () => { try { Process.Start("ms-settings:privacy-webcam"); } catch { } };
             camBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             trayBtn = new Btn(U.I("\uE70E", fs, Th.Text), Brushes.Transparent, Th.Hover, (h - 10) / 2, new Thickness(6, 3, 6, 3));
@@ -4653,7 +4783,6 @@ namespace WinDock
                 var mis = new List<MI>
                 {
                     MI.Item("Open Windows System Tray", "\uE70E", "Win+B", () => N.OpenTrayOverflow()),
-                    MI.Item("Windows Quick Settings", "\uE713", "Win+A", () => N.OpenQuickSettings()),
                     MI.Item("Windows Action Center", "\uEA8F", "Win+N", () => N.OpenNotificationCenter()),
                     MI.Sep(),
                     MI.Item(app.TaskbarHidden ? "Show Windows Taskbar" : "Hide Windows Taskbar", "\uE75B", () => app.ToggleWindowsTaskbar())
@@ -4757,7 +4886,8 @@ namespace WinDock
                 if (v < 0) return;
                 v = Math.Max(0, Math.Min(1, v + (e.Delta > 0 ? 0.02 : -0.02)));
                 Audio.Set(v);
-                Flash(Loc.Tr("Lautstärke ") + Math.Round(v * 100) + " %", 1.2, false);
+                Flash("Volume " + Math.Round(v * 100) + "%", 1.2, false);
+                VolumeOsd.ShowVolume(v, Audio.Muted(), app);
             };
             Closed += (s, e) =>
             {
@@ -4845,7 +4975,13 @@ namespace WinDock
                 micBtn.Visibility = Visibility.Collapsed;
             }
 
-            camBtn.Visibility = app.CamInUse && showSensors ? Visibility.Visible : Visibility.Collapsed;
+            bool showCam = c.B("pill.showCamera", true) && c.B("pill.showActiveSensors", true);
+            camBtn.Visibility = app.CamInUse && showCam ? Visibility.Visible : Visibility.Collapsed;
+            if (camBtn.Visibility == Visibility.Visible)
+            {
+                camBtn.Margin = micBtn.Visibility == Visibility.Visible ? new Thickness(4, 0, 0, 0) : new Thickness(0);
+                camBtn.ToolTip = !string.IsNullOrEmpty(app.CamActiveApp) ? ("Camera in use by " + app.CamActiveApp) : "Camera active";
+            }
             trayBtn.Visibility = c.B("pill.showTray", true) ? Visibility.Visible : Visibility.Collapsed;
             clock.Visibility = c.B("pill.showClock", true) ? Visibility.Visible : Visibility.Collapsed;
             bool sec = c.B("pill.clockSeconds", false);
@@ -11257,7 +11393,7 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "mic", "Microphone (Active)", "\uE720" },
+                new[] { "mic", "Microphone & Camera", "\uE720" },
                 new[] { "status", "Active Status Icons", "\uE701" },
                 new[] { "clock", "Clock", "\uE823" },
                 new[] { "date", "Date", "\uE787" },
@@ -11314,7 +11450,9 @@ namespace WinDock
                 Row("Active Status Icons", "Shows Wi-Fi, Bluetooth, DND, Keep Awake when active", Toggle("pill.showActiveStatus", null)),
                 Row("Now Playing Media", null, Toggle("pill.showMedia", null)),
                 Row("Media Max Width", null, Slider("pill.mediaWidth", 100, 400, 10, "px", false)),
-                Row("Camera & Mic Indicator", "Shows active indicators on the pill", Toggle("pill.showMicMuted", null)));
+                Row("Camera Indicator", "Shows active camera indicator on the pill", Toggle("pill.showCamera", null)),
+                Row("Microphone Indicator", "Shows active microphone indicator on the pill", Toggle("pill.showActiveSensors", null)),
+                Row("Microphone Muted Indicator", "Shows red indicator when microphone is muted", Toggle("pill.showMicMuted", null)));
             Section("pill", "Running & Pinned Apps",
                 Row("Show Taskbar Apps", "Click activates/minimizes, middle click closes", Toggle("pill.showWindows", null)),
                 Row("Show Pinned Favorites", "Displays favorited apps directly on the dock", Toggle("pill.showFavorites", null)),
@@ -12757,6 +12895,153 @@ namespace WinDock
         }
     }
 
+    // -----------------------------------------------------------------
+    //  Floating Volume OSD (HUD) overlay
+    // -----------------------------------------------------------------
+    public class VolumeOsd : Window
+    {
+        public static VolumeOsd Current;
+        readonly WinDockApp app;
+        readonly TextBlock ic, pct;
+        readonly Border fill;
+        readonly DispatcherTimer hideTimer;
+        IntPtr hwnd;
+        bool isShowing;
+
+        public VolumeOsd(WinDockApp a)
+        {
+            app = a;
+            WindowStyle = WindowStyle.None;
+            AllowsTransparency = true;
+            Background = Brushes.Transparent;
+            Topmost = true;
+            ShowInTaskbar = false;
+            Focusable = false;
+            ResizeMode = ResizeMode.NoResize;
+            ShowActivated = false;
+
+            double w = 240, h = 48;
+            Width = w; Height = h;
+
+            var card = new Border
+            {
+                Width = w, Height = h,
+                CornerRadius = new CornerRadius(h / 2),
+                Background = Th.CardBg,
+                BorderBrush = Th.CardBorder,
+                BorderThickness = new Thickness(Th.CardBorderW > 0 ? Th.CardBorderW : 1),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 4, Direction = 270, Opacity = 0.45, Color = Colors.Black }
+            };
+
+            var g = U.G(null, new[] { U.Px(36), U.Star(1), U.Auto });
+            g.Margin = new Thickness(12, 0, 16, 0);
+
+            ic = U.I("\uE767", 15, Th.Text);
+            ic.HorizontalAlignment = HorizontalAlignment.Center;
+            ic.VerticalAlignment = VerticalAlignment.Center;
+            U.Put(g, ic, 0, 0);
+
+            var trackGrid = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 12, 0), ClipToBounds = true };
+            var trackBg = new Border { Background = Th.Surface2, CornerRadius = new CornerRadius(3) };
+            fill = new Border
+            {
+                Background = Th.Accent,
+                CornerRadius = new CornerRadius(3),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Width = 0
+            };
+            trackGrid.Children.Add(trackBg);
+            trackGrid.Children.Add(fill);
+            U.Put(g, trackGrid, 0, 1);
+
+            pct = U.T("0%", 13, Th.Text, FontWeights.SemiBold);
+            pct.VerticalAlignment = VerticalAlignment.Center;
+            pct.MinWidth = 42;
+            pct.TextAlignment = TextAlignment.Right;
+            U.Put(g, pct, 0, 2);
+
+            card.Child = g;
+            Content = card;
+
+            SourceInitialized += (s, e) =>
+            {
+                hwnd = new WindowInteropHelper(this).Handle;
+                // WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT
+                N.AddExStyle(hwnd, 0x80 | 0x08000000 | 0x20);
+            };
+
+            hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1800) };
+            hideTimer.Tick += (s, e) =>
+            {
+                hideTimer.Stop();
+                FadeOut();
+            };
+        }
+
+        public static void ShowVolume(double v, bool muted, WinDockApp a)
+        {
+            if (Current == null) Current = new VolumeOsd(a);
+            Current.Update(v, muted);
+        }
+
+        public void Update(double v, bool muted)
+        {
+            v = Math.Max(0.0, Math.Min(1.0, v));
+            ic.Text = Audio.Glyph(v, muted);
+            ic.Foreground = muted ? Th.Muted : Th.Text;
+            fill.Opacity = muted ? 0.25 : 1.0;
+            fill.Background = muted ? Th.Muted : Th.Accent;
+
+            double trackW = 115;
+            fill.Width = Math.Max(0, trackW * v);
+            pct.Text = muted ? "Muted" : Math.Round(v * 100) + "%";
+            pct.Foreground = muted ? Th.Muted : Th.Text;
+
+            PositionWindow();
+
+            hideTimer.Stop();
+            hideTimer.Start();
+
+            if (!isShowing)
+            {
+                isShowing = true;
+                Opacity = 0;
+                Show();
+                var anim = new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(120));
+                BeginAnimation(OpacityProperty, anim);
+            }
+        }
+
+        void FadeOut()
+        {
+            var anim = new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(220));
+            anim.Completed += (s, e) =>
+            {
+                if (!hideTimer.IsEnabled)
+                {
+                    isShowing = false;
+                    Hide();
+                }
+            };
+            BeginAnimation(OpacityProperty, anim);
+        }
+
+        void PositionWindow()
+        {
+            var mon = app.MonitorDip();
+            double k = Th.K;
+            double x = mon.Left + (mon.Width - Width) / 2;
+            bool pillAtBottom = app.Cfg.S("position.edge", "bottom") == "bottom";
+            double y = pillAtBottom ? (mon.Bottom - Height - 70) : (mon.Top + 70);
+            Left = x;
+            Top = y;
+            if (hwnd != IntPtr.Zero)
+            {
+                N.SetWindowPos(hwnd, N.HWND_TOPMOST, 0, 0, 0, 0, 0x1 | 0x2 | 0x10);
+            }
+        }
+    }
+
     public class TrayFlyout : Window
     {
         public static TrayFlyout Current;
@@ -12764,7 +13049,7 @@ namespace WinDock
         readonly WinDockApp app;
         readonly Rect anchor;
         readonly List<DockAppItem> overflowApps;
-        readonly StackPanel sp = new StackPanel { MinWidth = 330, MaxWidth = 380 };
+        readonly StackPanel sp = new StackPanel { MinWidth = 260, MaxWidth = 320 };
         readonly List<Border> rows = new List<Border>();
         readonly List<Action> rowKeys = new List<Action>();
         int sel = -1;
@@ -12872,6 +13157,76 @@ namespace WinDock
                         CloseFlyout();
                         SystrayReader.Activate(it);
                     };
+                    b.MouseRightButtonUp += (s, e) =>
+                    {
+                        var mis = new List<MI>();
+                        mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () =>
+                        {
+                            CloseFlyout();
+                            SystrayReader.Activate(it);
+                        }));
+
+                        var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                        bool isPinned = !string.IsNullOrEmpty(it.ExePath) && pl.Contains(it.ExePath);
+                        if (!string.IsNullOrEmpty(it.ExePath) && File.Exists(it.ExePath))
+                        {
+                            mis.Add(MI.Item(isPinned ? "Unpin from pill" : "Pin to pill", isPinned ? "\uE77A" : "\uE718", () =>
+                            {
+                                var curList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                                if (isPinned) curList.Remove(it.ExePath);
+                                else if (!curList.Contains(it.ExePath)) curList.Add(it.ExePath);
+                                app.Store.Set("pill.pinned", curList);
+                                if (app.Pill != null) app.Pill.RefreshWindowsSoon();
+                            }));
+                            mis.Add(MI.Item("Run as administrator", "\uE7EF", () =>
+                            {
+                                CloseFlyout();
+                                try { Process.Start(new ProcessStartInfo(it.ExePath) { Verb = "runas", UseShellExecute = true }); } catch { }
+                            }));
+                            mis.Add(MI.Item("Open file location", "\uE838", () =>
+                            {
+                                CloseFlyout();
+                                try { Process.Start("explorer.exe", "/select,\"" + it.ExePath + "\""); } catch { }
+                            }));
+                        }
+
+                        mis.Add(MI.Sep());
+                        mis.Add(MI.Item("Close / End Process", "\uE711", () =>
+                        {
+                            CloseFlyout();
+                            try
+                            {
+                                if (it.MainWindowHandle != IntPtr.Zero)
+                                {
+                                    N.PostMessage(it.MainWindowHandle, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                                }
+                                if (it.Pid > 0)
+                                {
+                                    ThreadPool.QueueUserWorkItem(_ =>
+                                    {
+                                        try
+                                        {
+                                            var proc = Process.GetProcessById((int)it.Pid);
+                                            if (!proc.HasExited)
+                                            {
+                                                proc.CloseMainWindow();
+                                                if (!proc.WaitForExit(600)) proc.Kill();
+                                            }
+                                        }
+                                        catch { }
+                                    });
+                                }
+                            }
+                            catch { }
+                        }));
+
+                        var pt = e.GetPosition(this);
+                        var screenPt = PointToScreen(pt);
+                        double sc = WinDockApp.Scale();
+                        var at = new Point(screenPt.X / sc, screenPt.Y / sc);
+                        new MenuWindow(app, mis, app.Pill.MenuAnchor(at)).Open();
+                        e.Handled = true;
+                    };
                     trayWrap.Children.Add(b);
                 }
                 sp.Children.Add(trayWrap);
@@ -12932,79 +13287,11 @@ namespace WinDock
                 sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(6, 4, 6, 8) });
             }
 
-            // 3. Quick Settings
-            sp.Children.Add(Head("Quick Settings"));
-
-            // Wi-Fi
-            WifiState.UpdateIfNeeded();
-            string wifiTitle = WifiState.Connected ? "Wi-Fi: " + WifiState.Ssid : "Wi-Fi";
-            string wifiSub = WifiState.Connected ? (WifiState.SignalPercent >= 0 ? WifiState.SignalPercent + "% · Connected" : "Connected") : "Not connected";
-            AddRow(WifiState.Glyph, wifiTitle, wifiSub, () =>
+            // Windows Notification Area link at bottom
+            AddRow("\uE70E", "Windows Notification Area", "Win+B", () =>
             {
                 CloseFlyout();
-                WifiFlyout.Toggle(app, anchor);
-            });
-
-            // Bluetooth
-            bool btOn = N.IsBluetoothOn();
-            AddRow("\uE702", "Bluetooth", btOn ? "On · Click for devices" : "Off", () =>
-            {
-                CloseFlyout();
-                BluetoothFlyout.Toggle(app, anchor);
-            });
-
-            // Sound
-            int vol = (int)Math.Round(Audio.Get() * 100);
-            AddRow("\uE767", "Sound & Volume", vol + "%", () =>
-            {
-                CloseFlyout();
-                AudioFlyout.Toggle(app, anchor);
-            });
-
-            // Battery
-            if (BatteryStatus.HasBattery)
-            {
-                int pct = BatteryStatus.Percent;
-                bool chg = BatteryStatus.IsCharging;
-                bool saver = BatteryStatus.IsBatterySaver;
-                string batSub = pct + "% · " + (chg ? "Charging" : saver ? "Battery Saver" : "On battery");
-                AddRow(BatteryStatus.Glyph(pct, chg), "Battery", batSub, () =>
-                {
-                    CloseFlyout();
-                    AppIndex.Open("ms-settings:batterysaver");
-                });
-            }
-
-            // Do Not Disturb
-            bool dnd = DndControl.IsDnd();
-            AddRow("\uE708", "Do Not Disturb", dnd ? "On" : "Off", () =>
-            {
-                DndControl.Toggle();
-                if (app.Pill != null) app.Pill.Refresh();
-                CloseFlyout();
-            });
-
-            // Keep Awake
-            bool awake = ControlsTab.IsAwakeActive;
-            AddRow("\uE7B3", "Keep Awake", awake ? "On" : "Off", () =>
-            {
-                ControlsTab.ToggleKeepAwakeStatic();
-                if (app.Pill != null) app.Pill.Refresh();
-                CloseFlyout();
-            });
-
-            // Windows Action Center
-            AddRow("\uEA8F", "Windows Action Center", "Win+N", () =>
-            {
-                CloseFlyout();
-                N.OpenNotificationCenter();
-            });
-
-            // Toggle Windows Taskbar
-            AddRow("\uE75B", app.TaskbarHidden ? "Show Windows Taskbar" : "Hide Windows Taskbar", "Toggle", () =>
-            {
-                app.ToggleWindowsTaskbar();
-                CloseFlyout();
+                N.OpenTrayOverflow();
             });
         }
 
