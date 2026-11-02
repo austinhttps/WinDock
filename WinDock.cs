@@ -4777,7 +4777,8 @@ namespace WinDock
 
             bool anyStatus = statusWifi.Visibility == Visibility.Visible || statusBt.Visibility == Visibility.Visible ||
                              statusDnd.Visibility == Visibility.Visible || statusAwake.Visibility == Visibility.Visible;
-            statusSp.Visibility = anyStatus ? Visibility.Visible : Visibility.Collapsed;
+            bool showStatus = c.B("pill.showActiveStatus", true);
+            statusSp.Visibility = (showStatus && anyStatus) ? Visibility.Visible : Visibility.Collapsed;
 
             bool showBattery = c.B("pill.showBattery", true);
             if (showBattery && BatteryStatus.HasBattery)
@@ -10709,9 +10710,10 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "wifi", "Wi-Fi", "" }, new[] { "bluetooth", "Bluetooth", "" }, new[] { "audio", "Audio", "" },
+                new[] { "wifi", "Wi-Fi", "\uE701" }, new[] { "bluetooth", "Bluetooth", "\uE702" }, new[] { "audio", "Audio Devices", "\uE767" },
                 new[] { "volume", "Volume", "\uE767" }, new[] { "brightness", "Brightness", "\uE706" },
-                new[] { "night", Loc.Tr("Nachtmodus"), "" }, new[] { "dark", Loc.Tr("Dunkler Modus"), "" }, new[] { "mic", Loc.Tr("Mikrofon"), "" }, new[] { "awake", Loc.Tr("Wach bleiben"), "" }, new[] { "cast", Loc.Tr("Übertragen"), "" }, new[] { "batterysaver", Loc.Tr("Stromsparmodus"), "" }, new[] { "dnd", Loc.Tr("Nicht stören"), "\uE708" }
+                new[] { "night", "Night Light", "\uE708" }, new[] { "dark", "Dark Mode", "\uE793" }, new[] { "mic", "Microphone", "\uE720" },
+                new[] { "awake", "Keep Awake", "\uE7B3" }, new[] { "cast", "Cast & Mirror", "\uEC15" }, new[] { "batterysaver", "Battery Saver", "\uEBAA" }, new[] { "dnd", "Do Not Disturb", "\uE708" }
             };
         }
 
@@ -10719,8 +10721,8 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "lock", Loc.Tr("Sperren"), "" }, new[] { "sleep", Loc.Tr("Energie sparen"), "" }, new[] { "hibernate", Loc.Tr("Ruhezustand"), "" }, new[] { "logoff", Loc.Tr("Abmelden"), "" },
-                new[] { "restart", Loc.Tr("Neu starten"), "" }, new[] { "shutdown", Loc.Tr("Herunterfahren"), "" }
+                new[] { "lock", "Lock", "\uE72E" }, new[] { "sleep", "Sleep", "\uE708" }, new[] { "hibernate", "Hibernate", "\uE945" }, new[] { "logoff", "Sign Out", "\uF3B1" },
+                new[] { "restart", "Restart", "\uE777" }, new[] { "shutdown", "Shut Down", "\uE7E8" }
             };
         }
 
@@ -10728,9 +10730,16 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "mic", Loc.Tr("Mikro (nur wenn stumm)"), "" }, new[] { "clock", Loc.Tr("Uhrzeit"), "" },
-                new[] { "date", Loc.Tr("Datum"), "" }, new[] { "timer", Loc.Tr("Timer (nur wenn er läuft)"), "" },
-                new[] { "media", Loc.Tr("Laufender Song"), "" }, new[] { "windows", Loc.Tr("Offene Apps"), "" }
+                new[] { "mic", "Microphone (Active)", "\uE720" },
+                new[] { "status", "Active Status Icons", "\uE701" },
+                new[] { "clock", "Clock", "\uE823" },
+                new[] { "date", "Date", "\uE787" },
+                new[] { "weather", "Weather", "\uE753" },
+                new[] { "battery", "Battery", "\uE83E" },
+                new[] { "timer", "Timer (when running)", "\uE916" },
+                new[] { "media", "Now Playing Song", "\uE8D6" },
+                new[] { "tray", "System Tray Button", "\uE70E" },
+                new[] { "windows", "Running & Pinned Apps", "\uE7C4" }
             };
         }
 
@@ -10741,81 +10750,83 @@ namespace WinDock
 
             // ===== General =====
             Section("general", "Display & Scaling",
-                Row(Loc.Tr("Scale"), Loc.Tr("Auto scales based on screen resolution"), Choice("theme.scale", () => L(Loc.Tr("auto|Auto (") + Math.Round(app.ComputeScale(new Cfg { Root = new Dictionary<string, object>() }) * 100) + " %)",
+                Row("Scale", "Auto scales based on screen resolution", Choice("theme.scale", () => L("auto|Auto (" + Math.Round(app.ComputeScale(new Cfg { Root = new Dictionary<string, object>() }) * 100) + " %)",
                     "0.9|90 %", "1|100 %", "1.15|115 %", "1.3|130 %", "1.5|150 %", "1.75|175 %", "2|200 %"), 190)));
-            Section("general", "Öffnen",
-                Row(Loc.Tr("Win-Taste öffnet WinDock"), Loc.Tr("Win+E, Win+L usw. bleiben"), Toggle("behavior.winKey", null)),
-                Row(Loc.Tr("Tab bei Win-Taste"), null, Choice("behavior.winTab", () => { var l = TabOptions(false); l.Insert(0, new[] { "same", Loc.Tr("Wie Start-Tab") }); return l; }, 190)),
-                Row(Loc.Tr("Zusätzliches Tastenkürzel"), Loc.Tr("öffnet und schließt WinDock von überall"), Choice("behavior.hotkey", () => LT("|Keins",
-                    "Ctrl+Space|Strg+Leertaste", "Ctrl+Alt+Space|Strg+Alt+Leertaste", "Ctrl+Shift+Space|Strg+Umschalt+Leertaste", "Alt+Space|Alt+Leertaste",
-                    "Ctrl+Alt+N|Strg+Alt+N", "Ctrl+Shift+N|Strg+Umschalt+N", "F12|F12"), 210)),
-                Row(Loc.Tr("Einfach lostippen"), Loc.Tr("Tippen ohne Suchfeld springt zur Suche"), Choice("behavior.typeToSearch", () => LT("apps|Zur App-Suche", "taskbar|Zur Fenster-Suche", "off|Aus"), 190)));
+            Section("general", "Open & Shortcuts",
+                Row("Win Key opens WinDock", "Standard Win+E, Win+L, etc. remain unchanged", Toggle("behavior.winKey", null)),
+                Row("Tab on Win Key", null, Choice("behavior.winTab", () => { var l = TabOptions(false); l.Insert(0, new[] { "same", "Same as Start Tab" }); return l; }, 190)),
+                Row("Global Hotkey", "Opens and closes WinDock from anywhere", Choice("behavior.hotkey", () => LT("|None",
+                    "Ctrl+Space|Ctrl+Space", "Ctrl+Alt+Space|Ctrl+Alt+Space", "Ctrl+Shift+Space|Ctrl+Shift+Space", "Alt+Space|Alt+Space",
+                    "Ctrl+Alt+N|Ctrl+Alt+N", "Ctrl+Shift+N|Ctrl+Shift+N", "F12|F12"), 210)),
+                Row("Type to Search", "Typing without focused search jumps to search", Choice("behavior.typeToSearch", () => LT("apps|App & Web Search", "taskbar|Window Search", "off|Disabled"), 190)));
             Section("general", "System",
-                Row(Loc.Tr("Windows-Taskleiste ausblenden"), Loc.Tr("Desktop-Icons bleiben, wo sie sind"), Toggle("behavior.hideWindowsTaskbar", null)),
-                Row(Loc.Tr("Mit Windows starten"), Program.IsTest ? Loc.Tr("in der Testversion ohne Wirkung") : null, Toggle("behavior.autostart", null)));
+                Row("Hide Windows Taskbar", "Keeps desktop icons intact", Toggle("behavior.hideWindowsTaskbar", null)),
+                Row("Start with Windows", Program.IsTest ? "Disabled in test version" : null, Toggle("behavior.autostart", null)));
 
-            // ===== Pille =====
-            Section("pill", "Anzeige",
-                Row(Loc.Tr("Pille anzeigen"), Loc.Tr("Am Rand: nur ein Strich, Maus hin – Pille erscheint"), Seg("pill.mode", O("always:Immer", "lip:Am Rand", "hidden:Aus"), null)),
-                Row(Loc.Tr("Bei Vollbild ausblenden"), Loc.Tr("Spiele, Videos, F11"), Toggle("pill.hideInFullscreen", null)),
-                Row(Loc.Tr("Platz reservieren"), Loc.Tr("nur bei „Immer“: Fenster enden unter der Pille"), Toggle("pill.reserveSpace", null)));
-            Section("pill", "Form",
-                Row(Loc.Tr("Höhe"), null, Slider("pill.height", 24, 48, 1, "px", false)),
-                Row(Loc.Tr("Schriftgröße"), null, Slider("pill.fontSize", 11, 17, 0.5, "px", false)),
-                Row(Loc.Tr("Rundung"), Loc.Tr("100 % = ganz rund, 0 % = eckig"), Slider("pill.roundness", 0, 100, 5, "%", false)),
-                Row(Loc.Tr("Rahmen"), Loc.Tr("Farbe und Breite unter Design bzw. Panel"), Toggle("pill.border", null)));
-            Section("pill", "Inhalt",
-                Note(Loc.Tr("Reihenfolge in der Pille – Strg+↑/↓ oder die Pfeile verschieben.")),
+            // ===== Pill (Dock) =====
+            Section("pill", "Display",
+                Row("Pill Mode", "Edge: thin line that expands on hover", Seg("pill.mode", O("always:Always", "lip:On Edge", "hidden:Hidden"), null)),
+                Row("Hide in Fullscreen", "Games, video players, F11", Toggle("pill.hideInFullscreen", null)),
+                Row("Reserve Desktop Space", "Only when Always visible: windows end above dock", Toggle("pill.reserveSpace", null)));
+            Section("pill", "Sizing & Style",
+                Row("Height", null, Slider("pill.height", 24, 48, 1, "px", false)),
+                Row("Font Size", null, Slider("pill.fontSize", 11, 17, 0.5, "px", false)),
+                Row("Roundness", "100% = fully rounded pill, 0% = rectangular", Slider("pill.roundness", 0, 100, 5, "%", false)),
+                Row("Border", "Outline around the dock", Toggle("pill.border", null)));
+            Section("pill", "Content & Elements",
+                Note("Reorder dock elements – use Ctrl+Up/Down or the arrow buttons."),
                 OrderList("pill.order", PillItems(), 0, false),
-                Row(Loc.Tr("Uhrzeit"), null, Toggle("pill.showClock", null)),
-                Row(Loc.Tr("24-Stunden-Format"), null, Toggle("pill.clock24h", null)),
-                Row(Loc.Tr("Sekunden anzeigen"), null, Toggle("pill.clockSeconds", null)),
-                Row(Loc.Tr("Datum"), null, Toggle("pill.showDate", null)),
-                Row(Loc.Tr("Wetter in der Pille"), Loc.Tr("nutzt Gerätestandort oder Fallback-Ort"), Toggle("pill.showWeather", null)),
-                Row(Loc.Tr("Akku anzeigen"), Loc.Tr("bei Laptops und Tablets"), Toggle("pill.showBattery", null)),
-                Row(Loc.Tr("Infobereich (System-Tray)"), Loc.Tr("Symbole und Schnelleinstellungen"), Toggle("pill.showTray", null)),
-                Row(Loc.Tr("Datumsformat"), null, Seg("pill.dateFormat", O("short:Kurz", "long:Lang", "numeric:Zahlen"), null)),
-                Row(Loc.Tr("Laufender Song"), null, Toggle("pill.showMedia", null)),
-                Row(Loc.Tr("Max. Breite des Songs"), null, Slider("pill.mediaWidth", 100, 400, 10, "px", false)),
-                Row(Loc.Tr("Mikro stumm anzeigen"), Loc.Tr("rotes Symbol in der Pille"), Toggle("pill.showMicMuted", null)));
-            Section("pill", "Offene Apps",
-                Row(Loc.Tr("Offene Apps anzeigen"), Loc.Tr("Klick öffnet/minimiert, Mittelklick schließt"), Toggle("pill.showWindows", null)),
-                Row(Loc.Tr("Fenster einer App zusammenfassen"), Loc.Tr("aus = jedes Fenster bekommt ein eigenes Icon"), Toggle("pill.groupWindows", null)),
-                Row(Loc.Tr("Max. App-Icons"), null, Slider("pill.maxWindowIcons", 3, 20, 1, null, false)),
-                Row(Loc.Tr("Icon-Größe"), Loc.Tr("0 = automatisch"), Slider("pill.iconSize", 0, 32, 1, "px", false)));
-            Section("pill", "Maus",
-                Row(Loc.Tr("Klick auf die Pille öffnet"), null, Choice("pill.clickTab", () => { var l = TabOptions(false); l.Insert(0, new[] { "start", Loc.Tr("Start-Tab") }); return l; }, 190)),
-                Row(Loc.Tr("Mausrad über der Pille"), null, Seg("pill.wheel", O("volume:Lautstärke", "none:Nichts"), null)),
-                Row(Loc.Tr("Mittelklick auf ein App-Icon"), null, Seg("pill.middleClick", O("close:Schließen", "none:Nichts"), null)));
-            Section("pill", "Am Rand (Strich)",
-                Note(Loc.Tr("Gilt, wenn „Pille anzeigen“ auf „Am Rand“ steht.")),
-                Row(Loc.Tr("Strichbreite"), null, Slider("pill.lipWidth", 24, 300, 4, "px", false)),
-                Row(Loc.Tr("Strichdicke"), null, Slider("pill.lipThickness", 2, 12, 1, "px", false)),
-                Row(Loc.Tr("Ausblenden nach"), Loc.Tr("wenn die Maus die Pille verlässt"), Slider("pill.lipHideMs", 150, 3000, 50, "ms", false)));
+                Row("Clock", null, Toggle("pill.showClock", null)),
+                Row("24-Hour Format", null, Toggle("pill.clock24h", null)),
+                Row("Show Seconds", null, Toggle("pill.clockSeconds", null)),
+                Row("Date", null, Toggle("pill.showDate", null)),
+                Row("Date Format", null, Seg("pill.dateFormat", O("short:Short", "long:Long", "numeric:Numeric"), null)),
+                Row("Weather in Pill", "Uses device location or fallback city", Toggle("pill.showWeather", null)),
+                Row("Battery Status", "Shows battery level and charging indicator", Toggle("pill.showBattery", null)),
+                Row("System Tray Button", "Chevron to open active tray icons and quick settings", Toggle("pill.showTray", null)),
+                Row("Active Status Icons", "Shows Wi-Fi, Bluetooth, DND, Keep Awake when active", Toggle("pill.showActiveStatus", null)),
+                Row("Now Playing Media", null, Toggle("pill.showMedia", null)),
+                Row("Media Max Width", null, Slider("pill.mediaWidth", 100, 400, 10, "px", false)),
+                Row("Camera & Mic Indicator", "Shows active indicators on the pill", Toggle("pill.showMicMuted", null)));
+            Section("pill", "Running & Pinned Apps",
+                Row("Show Taskbar Apps", "Click activates/minimizes, middle click closes", Toggle("pill.showWindows", null)),
+                Row("Show Pinned Favorites", "Displays favorited apps directly on the dock", Toggle("pill.showFavorites", null)),
+                Row("Group Windows by App", "Off = each window has its own icon", Toggle("pill.groupWindows", null)),
+                Row("Max App Icons", null, Slider("pill.maxWindowIcons", 3, 30, 1, null, false)),
+                Row("Icon Size", "0 = auto calculate", Slider("pill.iconSize", 0, 36, 1, "px", false)));
+            Section("pill", "Mouse & Actions",
+                Row("Click on Pill Opens", null, Choice("pill.clickTab", () => { var l = TabOptions(false); l.Insert(0, new[] { "start", "Start Tab" }); return l; }, 190)),
+                Row("Mouse Wheel over Pill", null, Seg("pill.wheel", O("volume:Volume", "none:None"), null)),
+                Row("Middle Click on App", null, Seg("pill.middleClick", O("close:Close", "none:None"), null)));
+            Section("pill", "On Edge (Lip Mode)",
+                Note("Applies when Pill Mode is set to 'On Edge'."),
+                Row("Line Width", null, Slider("pill.lipWidth", 24, 300, 4, "px", false)),
+                Row("Line Thickness", null, Slider("pill.lipThickness", 2, 12, 1, "px", false)),
+                Row("Hide Delay", "After cursor leaves the dock", Slider("pill.lipHideMs", 150, 3000, 50, "ms", false)));
 
             // ===== Panel =====
-            Section("panel", "Größe & Form",
-                Row(Loc.Tr("Breite"), null, Slider("panel.width", 560, 1200, 10, "px", false)),
-                Row(Loc.Tr("Höhe"), null, Slider("panel.height", 380, 720, 10, "px", false)),
-                Row(Loc.Tr("Eckenradius"), null, Slider("panel.radius", 0, 36, 1, "px", false)),
-                Row(Loc.Tr("Rahmenbreite"), Loc.Tr("0 = kein Rahmen"), Slider("panel.borderWidth", 0, 4, 0.5, "px", false)));
-            Section("panel", "Tab-Leiste",
-                Row(Loc.Tr("Tab-Stil"), null, Seg("panel.tabStyle", O("pill:Pille", "underline:Linie", "text:Nur Text"), null)),
-                Row(Loc.Tr("Tab-Beschriftung"), null, Seg("panel.tabIcons", O("text:Text", "icons:Symbole", "both:Beides"), null)),
-                Row(Loc.Tr("Tabs ausrichten"), null, Seg("panel.tabAlign", O("left:Linksbündig", "center:Mitte"), null)),
-                Row(Loc.Tr("Uhr in der Tab-Leiste"), null, Toggle("panel.showClock", null)),
-                Row(Loc.Tr("Hilfe-Knopf"), Loc.Tr("F1 geht immer"), Toggle("panel.showHelpButton", null)),
-                Row(Loc.Tr("Menü-Knopf"), Loc.Tr("Rechtsklick geht immer"), Toggle("panel.showMenuButton", null)));
-            Section("panel", "Verhalten",
-                Row(Loc.Tr("Start-Tab"), Loc.Tr("Tab beim Öffnen"), Choice("panel.startTab", () => TabOptions(true), 190)),
-                Row(Loc.Tr("Schließen beim Wegklicken"), null, Toggle("panel.closeOnBlur", null)));
-            Section("panel", "Animation & Schatten",
-                Row(Loc.Tr("Öffnen-Effekt"), null, Seg("panel.animStyle", O("morph:Morph", "fade:Blende", "slide:Gleiten", "none:Aus"), null)),
-                Row(Loc.Tr("Dauer"), Loc.Tr("0 = sofort"), Slider("panel.animationMs", 0, 600, 10, "ms", false)),
-                Row(Loc.Tr("Schatten"), null, Toggle("panel.shadow", null)),
-                Row(Loc.Tr("Schattenstärke"), null, Slider("panel.shadowStrength", 0, 1, 0.05, null, true)));
+            Section("panel", "Dimensions & Shape",
+                Row("Width", null, Slider("panel.width", 560, 1200, 10, "px", false)),
+                Row("Height", null, Slider("panel.height", 380, 720, 10, "px", false)),
+                Row("Corner Radius", null, Slider("panel.radius", 0, 36, 1, "px", false)),
+                Row("Border Width", "0 = no border", Slider("panel.borderWidth", 0, 4, 0.5, "px", false)));
+            Section("panel", "Tab Bar",
+                Row("Tab Style", null, Seg("panel.tabStyle", O("pill:Pill", "underline:Underline", "text:Text Only"), null)),
+                Row("Tab Content", null, Seg("panel.tabIcons", O("text:Text", "icons:Icons", "both:Both"), null)),
+                Row("Tab Alignment", null, Seg("panel.tabAlign", O("left:Left", "center:Center"), null)),
+                Row("Clock in Tab Bar", null, Toggle("panel.showClock", null)),
+                Row("Help Button", "F1 opens help anytime", Toggle("panel.showHelpButton", null)),
+                Row("Menu Button", "Right click opens menu anytime", Toggle("panel.showMenuButton", null)));
+            Section("panel", "Behavior",
+                Row("Default Start Tab", "Tab opened when launching panel", Choice("panel.startTab", () => TabOptions(true), 190)),
+                Row("Close on Outside Click", null, Toggle("panel.closeOnBlur", null)));
+            Section("panel", "Animation & Shadow",
+                Row("Animation Style", null, Seg("panel.animStyle", O("morph:Morph", "fade:Fade", "slide:Slide", "none:None"), null)),
+                Row("Animation Duration", "0 = instant", Slider("panel.animationMs", 0, 600, 10, "ms", false)),
+                Row("Window Shadow", null, Toggle("panel.shadow", null)),
+                Row("Shadow Opacity", null, Slider("panel.shadowStrength", 0, 1, 0.05, null, true)));
 
-            // ===== Design =====
+            // ===== Appearance =====
             var presets = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             foreach (var pr in Presets)
             {
@@ -10827,7 +10838,7 @@ namespace WinDock
                     new GradientStop(Th.P(p[2], Colors.Black), 0.5), new GradientStop(Th.P(p.Length > 8 ? p[8] : p[2], Colors.Black), 1)
                 }, 45);
                 var spp = new StackPanel { Orientation = Orientation.Horizontal };
-                spp.Children.Add(sw); spp.Children.Add(U.T(Loc.Tr(p[0]), 12.5, Th.Text, FontWeights.SemiBold));
+                spp.Children.Add(sw); spp.Children.Add(U.T(p[0], 12.5, Th.Text, FontWeights.SemiBold));
                 var b = Button(new TextBlock(), false, () =>
                 {
                     S2("theme.accent", p[1]); S2("theme.background", p[2]); S2("theme.surface", p[3]); S2("theme.surface2", p[4]);
@@ -10839,47 +10850,47 @@ namespace WinDock
                 b.Child = spp; b.Padding = new Thickness(6, 5, 11, 5); b.Margin = new Thickness(0, 0, 6, 6); b.Background = Th.Surface2;
                 presets.Children.Add(b);
             }
-            Section("design", "Vorlagen", Tagged(presets, Loc.Tr("Vorlagen") + " " + string.Join(" ", Presets.Select(x => x[0]))));
-            Section("design", "Farben",
-                Row(Loc.Tr("Akzent"), null, ColorField("theme.accent", false)),
-                Row(Loc.Tr("Hintergrund"), null, ColorField("theme.background", false)),
-                Row(Loc.Tr("Verlauf"), Loc.Tr("Hintergrund läuft schräg in eine zweite Farbe"), Toggle("theme.gradient", null)),
-                Row(Loc.Tr("Verlaufsfarbe"), null, ColorField("theme.background2", false)),
-                Row(Loc.Tr("Fläche"), Loc.Tr("Kacheln, Karten"), ColorField("theme.surface", false)),
-                Row(Loc.Tr("Fläche 2"), Loc.Tr("Knöpfe, Felder"), ColorField("theme.surface2", false)),
+            Section("design", "Presets", Tagged(presets, "Presets " + string.Join(" ", Presets.Select(x => x[0]))));
+            Section("design", "Colors",
+                Row("Accent", null, ColorField("theme.accent", false)),
+                Row("Background", null, ColorField("theme.background", false)),
+                Row("Gradient", "Background blends into a secondary color", Toggle("theme.gradient", null)),
+                Row("Gradient Secondary Color", null, ColorField("theme.background2", false)),
+                Row("Surface", "Tiles and cards", ColorField("theme.surface", false)),
+                Row("Surface 2", "Buttons and input fields", ColorField("theme.surface2", false)),
                 Row("Text", null, ColorField("theme.text", false)),
-                Row(Loc.Tr("Text gedämpft"), null, ColorField("theme.muted", false)),
-                Row(Loc.Tr("Pille"), Loc.Tr("Auto = wie Hintergrund"), ColorField("theme.pillBackground", true)),
-                Row(Loc.Tr("Rahmenfarbe"), Loc.Tr("Auto = leicht aus der Textfarbe"), ColorField("theme.border", true)),
-                Row(Loc.Tr("Deckkraft"), null, Slider("theme.opacity", 0.5, 1, 0.01, null, true)));
-            Section("design", "Karten",
-                Row(Loc.Tr("Kartenstil"), Loc.Tr("Kacheln, Suchfelder, Bereiche"), Seg("theme.cardStyle", O("filled:Gefüllt", "outline:Umriss", "flat:Flach"), null)),
-                Row(Loc.Tr("Kartenradius"), null, Slider("theme.cardRadius", 0, 30, 1, "px", false)));
-            Section("design", "Schrift",
-                Row(Loc.Tr("Schrift"), null, Choice("theme.font", () => L("Segoe UI Variable Display|Segoe UI Variable Display", "Segoe UI Variable Text|Segoe UI Variable Text",
+                Row("Muted Text", null, ColorField("theme.muted", false)),
+                Row("Pill Background", "Auto = same as background", ColorField("theme.pillBackground", true)),
+                Row("Border Color", "Auto = derived from text color", ColorField("theme.border", true)),
+                Row("Opacity", null, Slider("theme.opacity", 0.5, 1, 0.01, null, true)));
+            Section("design", "Cards",
+                Row("Card Style", "Tiles, search fields, containers", Seg("theme.cardStyle", O("filled:Filled", "outline:Outline", "flat:Flat"), null)),
+                Row("Card Radius", null, Slider("theme.cardRadius", 0, 30, 1, "px", false)));
+            Section("design", "Typography",
+                Row("Font Family", null, Choice("theme.font", () => L("Segoe UI Variable Display|Segoe UI Variable Display", "Segoe UI Variable Text|Segoe UI Variable Text",
                     "Segoe UI|Segoe UI", "Bahnschrift|Bahnschrift", "Cascadia Code|Cascadia Code", "Inter|Inter", "Arial|Arial", "Calibri|Calibri", "Consolas|Consolas"), 210)));
 
             // ===== Position =====
-            Section("position", "Position",
-                Row(Loc.Tr("Rand"), null, Seg("position.edge", O("top:Oben", "bottom:Unten"), null)),
-                Row(Loc.Tr("Ausrichtung"), null, Seg("position.align", O("left:Linksbündig", "center:Mitte", "right:Rechtsbündig"), null)),
-                Row(Loc.Tr("Abstand zum Rand"), Loc.Tr("0 = bündig, wie eine Notch"), Slider("position.offset", 0, 40, 1, "px", false)),
-                Row(Loc.Tr("Seitenabstand"), Loc.Tr("nur bei links/rechts"), Slider("position.sideMargin", 0, 300, 2, "px", false)),
-                Row(Loc.Tr("Bildschirm"), Loc.Tr("0 = Hauptbildschirm"), Slider("position.monitor", 0, 4, 1, null, false)));
-            Section("position", "Verschieben",
-                Row(Loc.Tr("Pille verschieben"), Loc.Tr("klicken, halten und ziehen"), Choice("position.dragMode", () => LT("reset|Zurück beim Öffnen", "keep|Bleibt, wo sie ist", "off|Nicht verschiebbar"), 190)));
+            Section("position", "Screen Placement",
+                Row("Screen Edge", null, Seg("position.edge", O("top:Top", "bottom:Bottom"), null)),
+                Row("Alignment", null, Seg("position.align", O("left:Left", "center:Center", "right:Right"), null)),
+                Row("Distance to Edge", "0 = flush with edge", Slider("position.offset", 0, 40, 1, "px", false)),
+                Row("Side Margin", "For left or right aligned dock", Slider("position.sideMargin", 0, 300, 2, "px", false)),
+                Row("Monitor", "0 = primary monitor", Slider("position.monitor", 0, 4, 1, null, false)));
+            Section("position", "Dragging",
+                Row("Move Dock", "Click, hold and drag", Choice("position.dragMode", () => LT("reset|Reset on Open", "keep|Keep Position", "off|Not Draggable"), 190)));
 
-            // ===== Tabs =====
+            // ===== Tabs Management =====
             Section("tabs", "Tabs",
-                Note(Loc.Tr("Leertaste schaltet, Strg+↑/↓ verschiebt. Ausgeschaltete Tabs werden gar nicht geladen.")),
+                Note("Space toggles, Ctrl+Up/Down reorders. Disabled tabs are not loaded."),
                 OrderList("tabs", TabItems(), 1, true));
-            Section("tabs", "Steuerung",
-                Note(Loc.Tr("Kacheln an/aus und Reihenfolge – je drei pro Reihe.")),
+            Section("tabs", "Controls",
+                Note("Control tiles ordering and visibility – 3 per row."),
                 OrderList("controls.tiles", TileItems(), 0, true),
-                Row(Loc.Tr("Suchleiste"), Loc.Tr("wie im Windows-Startmenü"), Toggle("controls.showSearch", null)),
-                Row(Loc.Tr("Helligkeits-Regler"), null, Toggle("controls.showBrightness", null)),
-                Row(Loc.Tr("Lautstärke-Regler"), null, Toggle("controls.showVolume", null)),
-                Row(Loc.Tr("Medien-Karte"), Loc.Tr("Cover, Titel, Spulen"), Toggle("controls.showMedia", null)));
+                Row("Search Bar", "Start menu style search for web, apps, settings", Toggle("controls.showSearch", null)),
+                Row("Standalone Brightness Slider", "Shows full-width slider below tiles", Toggle("controls.showBrightness", null)),
+                Row("Standalone Volume Slider", "Shows full-width slider below tiles", Toggle("controls.showVolume", null)),
+                Row("Media Player Card", "Artwork, playback controls, and track progress", Toggle("controls.showMedia", null)));
 
             var presetsTb = new TextBox { Text = string.Join(", ", GL("today.timerPresets")) };
             Action commitPresets = () =>
@@ -10891,51 +10902,57 @@ namespace WinDock
             };
             presetsTb.LostKeyboardFocus += (s, e) => commitPresets();
             presetsTb.KeyDown += (s, e) => { if (e.Key == Key.Enter) { commitPresets(); e.Handled = true; } };
-            Section("tabs", "Heute",
-                Row(Loc.Tr("Wetter-Karte"), null, Toggle("today.showWeather", null)),
-                Row(Loc.Tr("Timer-Karte"), null, Toggle("today.showTimer", null)),
-                Row(Loc.Tr("To-dos"), null, Toggle("today.showTodos", null)),
-                Row(Loc.Tr("Ort fürs Wetter"), Loc.Tr("leer = kein Wetter"), TextField("today.weatherCity", Loc.Tr("z. B. Hamburg"), 180)),
-                Row(Loc.Tr("Einheit"), null, Seg("today.weatherUnit", new[] { "C:°C", "F:°F" }, null)),
-                Row(Loc.Tr("Timer-Vorgaben"), Loc.Tr("Minuten, mit Komma getrennt"), Field(presetsTb, 180)));
+            Section("tabs", "Today",
+                Row("Weather Card", null, Toggle("today.showWeather", null)),
+                Row("Timer Card", null, Toggle("today.showTimer", null)),
+                Row("To-dos", null, Toggle("today.showTodos", null)),
+                Row("Weather Location", "Empty = auto-detect device location", TextField("today.weatherCity", "e.g. New York", 180)),
+                Row("Temperature Unit", null, Seg("today.weatherUnit", new[] { "F:°F", "C:°C" }, null)),
+                Row("Timer Presets", "Minutes separated by commas", Field(presetsTb, 180)));
             Section("tabs", "Apps",
-                Tagged(LinksList(), Loc.Tr("Schnellzugriffe") + " Links"),
-                Row(Loc.Tr("Favoriten anzeigen"), null, Toggle("apps.showFavorites", null)),
-                Row(Loc.Tr("Zuletzt benutzt"), Loc.Tr("Anzahl, 0 = aus"), Slider("apps.recentCount", 0, 12, 1, null, false)),
-                Row(Loc.Tr("Kompakte Liste"), Loc.Tr("niedrigere Zeilen, kleinere Icons"), Toggle("apps.compact", null)),
-                Row(Loc.Tr("Art anzeigen"), Loc.Tr("z. B. „Anwendung“ rechts in der Zeile"), Toggle("apps.showKind", null)),
-                Row(Loc.Tr("Websuche"), null, Choice("apps.webSearch", () =>
+                Tagged(LinksList(), "Quick Links"),
+                Row("Show Pinned Favorites", "Boxed tiles like Windows Start menu", Toggle("apps.showFavorites", null)),
+                Row("Recent Apps Count", "0 = disabled", Slider("apps.recentCount", 0, 12, 1, null, false)),
+                Row("Compact List View", "Lower rows, smaller icons", Toggle("apps.compact", null)),
+                Row("Show Item Type", "e.g. 'Application' or 'Folder' label", Toggle("apps.showKind", null)),
+                Row("Web Search Engine", null, Choice("apps.webSearch", () =>
                 {
                     var l = L("https://www.google.com/search?q=|Google", "https://duckduckgo.com/?q=|DuckDuckGo", "https://www.bing.com/search?q=|Bing",
                               "https://www.ecosia.org/search?q=|Ecosia", "https://www.startpage.com/do/search?q=|Startpage", "https://search.brave.com/search?q=|Brave");
-                    l.Add(new[] { "", Loc.Tr("Aus") });
+                    l.Add(new[] { "", "Disabled" });
                     string cur = GS("apps.webSearch", "");
-                    if (!l.Any(x => x[0] == cur)) l.Add(new[] { cur, Loc.Tr("Eigene") });
+                    if (!l.Any(x => x[0] == cur)) l.Add(new[] { cur, "Custom" });
                     return l;
                 }, 190)),
-                Row(Loc.Tr("Deinstallationsprogramme ausblenden"), null, Toggle("apps.hideUninstallers", null)));
+                Row("Hide Uninstall Shortcuts", null, Toggle("apps.hideUninstallers", null)),
+                Row("Search Windows Settings", "Include Windows Settings in search results", Toggle("apps.searchSettings", null)),
+                Row("Search Recent Files", "Include files & documents in search results", Toggle("apps.searchFiles", null)));
+            Section("tabs", "Notifications",
+                Row("Notification History", "Record incoming system notifications", Toggle("notifications.enabled", null)),
+                Row("Max Saved Notifications", null, Slider("notifications.maxItems", 10, 100, 5, null, false)),
+                Row("Allow Clearing Notifications", null, Toggle("notifications.allowClear", null)));
             Section("tabs", "Taskbar",
-                Row(Loc.Tr("Taskbar-Tab im Panel anzeigen"), Loc.Tr("aus = Tab verschwindet aus dem Panel"), Toggle("panel.showTaskbar", () => RebuildPreview())),
-                Row(Loc.Tr("Nach App gruppieren"), Loc.Tr("aus = einfache Liste aller Fenster"), Toggle("taskbar.group", null)));
-            Section("tabs", "Zwischenablage",
-                Row(Loc.Tr("Verlauf aktiv"), null, Toggle("clipboard.enabled", null)),
-                Row(Loc.Tr("Einträge merken"), null, Slider("clipboard.maxItems", 10, 200, 5, null, false)),
-                Row(Loc.Tr("Nach Neustart behalten"), Loc.Tr("nur Text, Bilder nie"), Toggle("clipboard.persist", null)),
-                Row(Loc.Tr("Filter beim Öffnen"), null, Seg("clipboard.defaultFilter", new[] { "all:" + Loc.Tr("Alle"), "text:Text", "image:" + Loc.Tr("Bilder"), "link:Links" }, null)));
+                Row("Show Taskbar Tab in Panel", "Toggle tab visibility in panel", Toggle("panel.showTaskbar", () => RebuildPreview())),
+                Row("Group Windows by App", "Off = flat list of open windows", Toggle("taskbar.group", null)));
+            Section("tabs", "Clipboard",
+                Row("Clipboard History", null, Toggle("clipboard.enabled", null)),
+                Row("Max Saved Items", null, Slider("clipboard.maxItems", 10, 200, 5, null, false)),
+                Row("Keep History on Restart", "Text items only", Toggle("clipboard.persist", null)),
+                Row("Default Filter Tab", null, Seg("clipboard.defaultFilter", new[] { "all:All", "text:Text", "image:Images", "link:Links" }, null)));
             Section("tabs", "Power",
-                Note(Loc.Tr("Knöpfe an/aus und Reihenfolge.")),
+                Note("Power button visibility and ordering."),
                 OrderList("power.buttons", PowerItems(), 1, true),
-                Row(Loc.Tr("Herunterfahren bestätigen"), Loc.Tr("zweimal drücken"), Toggle("power.confirm", null)));
+                Row("Confirm Power Actions", "Requires double-clicking to shut down/restart", Toggle("power.confirm", null)));
 
             // ===== Info =====
             var ver = U.T("v" + WinDockApp.Version + (Program.IsTest ? "  ·  TEST" : ""), 13, Th.Text, FontWeights.SemiBold);
             Section("info", "WinDock",
-                Row(Loc.Tr("Version"), Program.IsTest ? Loc.Tr("Testversion – läuft neben der stabilen Version, eigene Einstellungen") : Loc.Tr("Stabile Version"), ver),
-                Row(Loc.Tr("Einstellungsdatei"), Loc.Tr("config.json – zum Sichern oder Teilen"), Button(U.T(Loc.Tr("Ordner öffnen"), 13, Th.Text, FontWeights.SemiBold), false, () => app.OpenConfigFolder())),
-                Row("GitHub", Loc.Tr("Quellcode, Updates und Fehler melden"), Button(U.T(Loc.Tr("Öffnen"), 13, Th.Text, FontWeights.SemiBold), false, () => AppIndex.Open("https://github.com/NixFabo/WinDock"))));
-            Section("info", "Tastatur",
-                Note(Loc.Tr("Strg+S speichert  ·  Esc bricht ab  ·  Strg+F sucht  ·  Strg+Bild↑/↓ wechselt den Bereich  ·  Tab springt zum nächsten Feld  ·  Leertaste schaltet  ·  ← → ändert Werte")),
-                Note(Loc.Tr("Im Panel: F1 zeigt alle Tastenkürzel.")));
+                Row("Version", Program.IsTest ? "Test version – runs alongside stable version with separate settings" : "Stable version", ver),
+                Row("Configuration File", "config.json – for backing up or sharing settings", Button(U.T("Open Folder", 13, Th.Text, FontWeights.SemiBold), false, () => app.OpenConfigFolder())),
+                Row("GitHub", "Source code, updates, and issue tracker", Button(U.T("Open Repository", 13, Th.Text, FontWeights.SemiBold), false, () => AppIndex.Open("https://github.com/NixFabo/WinDock"))));
+            Section("info", "Keyboard Shortcuts",
+                Note("Ctrl+S saves  ·  Esc cancels  ·  Ctrl+F searches  ·  Ctrl+PageUp/Down switches sections  ·  Tab moves to next field  ·  Space toggles  ·  Left/Right adjusts sliders"),
+                Note("In Panel: F1 displays all keyboard shortcuts."));
 
             ApplyFilter();
         }
