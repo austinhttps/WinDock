@@ -6878,19 +6878,19 @@ namespace WinDock
             sep = new Border { Width = 1, Height = 20, Background = Th.Faint, Margin = new Thickness(0, 0, 4, 0) };
             chevBg = new Border
             {
-                Width = 28, Height = 28,
-                CornerRadius = new CornerRadius(14),
+                Width = 30, Height = 30,
+                CornerRadius = new CornerRadius(15),
                 Background = Th.B(Th.A(Th.TextC, 18)),
                 Cursor = Cursors.Hand,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 ToolTip = "Volume mixer & App volumes"
             };
-            chev = U.I("\uE76C", 10, Th.Text);
+            chev = U.I("\uE76C", 10.5, Th.Text);
             chev.HorizontalAlignment = HorizontalAlignment.Center;
             chev.VerticalAlignment = VerticalAlignment.Center;
             chevBg.Child = chev;
-            chevBg.MouseEnter += (s, e) => { chevBg.Background = Th.B(Th.A(Th.TextC, 40)); chev.Foreground = Th.Text; };
+            chevBg.MouseEnter += (s, e) => { chevBg.Background = Th.B(Th.A(Th.TextC, 45)); chev.Foreground = Th.Text; };
             chevBg.MouseLeave += (s, e) => { chevBg.Background = Th.B(Th.A(Th.TextC, 18)); chev.Foreground = Th.Text; };
             right.Children.Add(sep);
             right.Children.Add(chevBg);
@@ -6904,56 +6904,67 @@ namespace WinDock
             MouseEnter += (s, e) => { fill.Opacity = 0.44; };
             MouseLeave += (s, e) => { fill.Opacity = 0.32; };
 
-            LostMouseCapture += (s, e) => { dragging = false; potentialClick = false; };
+            LostMouseCapture += (s, e) => { dragging = false; isChevArea = false; isIconArea = false; };
 
             PreviewMouseLeftButtonDown += (s, e) =>
             {
+                var p = e.GetPosition(this);
+                if (p.X <= 42)
+                {
+                    isIconArea = true;
+                    isChevArea = false;
+                    dragging = false;
+                    CaptureMouse();
+                    e.Handled = true;
+                    return;
+                }
+                if (hasChevron && p.X >= ActualWidth - 44)
+                {
+                    isChevArea = true;
+                    isIconArea = false;
+                    dragging = false;
+                    CaptureMouse();
+                    e.Handled = true;
+                    return;
+                }
                 if (e.ClickCount >= 2 && hasChevron)
                 {
                     if (ChevronClick != null) ChevronClick();
                     e.Handled = true;
                     return;
                 }
-                startPt = e.GetPosition(this);
-                isIconArea = startPt.X <= 44;
-                isChevArea = hasChevron && startPt.X >= ActualWidth - 44;
-                potentialClick = true;
-                dragging = false;
+                isIconArea = false;
+                isChevArea = false;
+                dragging = true;
                 CaptureMouse();
+                SetFromX(p.X);
                 e.Handled = true;
             };
 
             PreviewMouseMove += (s, e) =>
             {
-                var p = e.GetPosition(this);
-                if (potentialClick)
+                if (dragging)
                 {
-                    if (Math.Abs(p.X - startPt.X) > 4)
-                    {
-                        potentialClick = false;
-                        if (!isIconArea && !isChevArea)
-                        {
-                            dragging = true;
-                            SetFromX(p.X);
-                        }
-                    }
+                    SetFromX(e.GetPosition(this).X);
+                    e.Handled = true;
                 }
-                else if (dragging)
-                {
-                    SetFromX(p.X);
-                }
-                if (dragging || potentialClick) e.Handled = true;
             };
 
             PreviewMouseLeftButtonUp += (s, e) =>
             {
                 if (IsMouseCaptured) ReleaseMouseCapture();
-                if (potentialClick)
+                var p = e.GetPosition(this);
+                if (isIconArea)
                 {
-                    potentialClick = false;
-                    if (isIconArea && IconClick != null) IconClick();
-                    else if (hasChevron && ChevronClick != null) ChevronClick();
-                    else if (IconClick != null) IconClick();
+                    isIconArea = false;
+                    if (p.X >= -10 && p.X <= 52 && p.Y >= -10 && p.Y <= ActualHeight + 10 && IconClick != null)
+                        IconClick();
+                }
+                else if (isChevArea)
+                {
+                    isChevArea = false;
+                    if (p.X >= ActualWidth - 52 && p.X <= ActualWidth + 10 && p.Y >= -10 && p.Y <= ActualHeight + 10 && ChevronClick != null)
+                        ChevronClick();
                 }
                 dragging = false;
                 e.Handled = true;
@@ -12965,6 +12976,13 @@ namespace WinDock
                                 try { if (File.Exists(path)) desc = FileVersionInfo.GetVersionInfo(path).FileDescription; } catch { }
                                 string title = !string.IsNullOrWhiteSpace(tip) ? tip : (!string.IsNullOrWhiteSpace(desc) ? desc : proc);
 
+                                if (title.IndexOf("Windows Security", StringComparison.OrdinalIgnoreCase) >= 0 || proc.Equals("SecurityHealthSystray", StringComparison.OrdinalIgnoreCase)) title = "Windows Security";
+                                else if (title.IndexOf("Radeon", StringComparison.OrdinalIgnoreCase) >= 0 || proc.Equals("RadeonSoftware", StringComparison.OrdinalIgnoreCase)) title = "AMD Software";
+                                else if (title.IndexOf("ArmouryCrate", StringComparison.OrdinalIgnoreCase) >= 0) title = "Armoury Crate";
+                                else if (title.IndexOf("GeminiAppLauncher", StringComparison.OrdinalIgnoreCase) >= 0) title = "Google Gemini";
+                                else if (title.IndexOf("Teams", StringComparison.OrdinalIgnoreCase) >= 0 || proc.Equals("ms-teams", StringComparison.OrdinalIgnoreCase)) title = "Microsoft Teams";
+                                else if (title.IndexOf("Spotify", StringComparison.OrdinalIgnoreCase) >= 0) title = "Spotify";
+
                                 res.Add(new SystrayItem
                                 {
                                     ExePath = path,
@@ -12983,41 +13001,137 @@ namespace WinDock
             return res;
         }
 
-        public static void Activate(SystrayItem item)
+        public static void Activate(SystrayItem item, WinDockApp app = null)
         {
             if (item == null) return;
             try
             {
+                // 1. Try to activate an existing visible top-level window for this process
                 if (item.MainWindowHandle != IntPtr.Zero && N.IsWindowVisible(item.MainWindowHandle))
                 {
                     WinList.Activate(item.MainWindowHandle);
                     return;
                 }
-                IntPtr found = IntPtr.Zero;
+                IntPtr visibleHwnd = IntPtr.Zero;
+                IntPtr hiddenHwnd = IntPtr.Zero;
                 N.EnumWindows((h, l) =>
                 {
-                    if (!N.IsWindowVisible(h)) return true;
                     uint pid; N.GetWindowThreadProcessId(h, out pid);
                     if (pid == item.Pid)
                     {
-                        found = h;
-                        return false;
+                        int len = N.GetWindowTextLength(h);
+                        if (len > 0)
+                        {
+                            if (N.IsWindowVisible(h))
+                            {
+                                visibleHwnd = h;
+                                return false;
+                            }
+                            if (hiddenHwnd == IntPtr.Zero) hiddenHwnd = h;
+                        }
                     }
                     return true;
                 }, IntPtr.Zero);
 
-                if (found != IntPtr.Zero)
+                if (visibleHwnd != IntPtr.Zero)
                 {
-                    WinList.Activate(found);
+                    WinList.Activate(visibleHwnd);
                     return;
                 }
 
+                // If a window existed but was hidden (e.g. minimized to tray): unhide and activate it!
+                if (hiddenHwnd != IntPtr.Zero)
+                {
+                    N.ShowWindow(hiddenHwnd, 9); // SW_RESTORE
+                    N.ShowWindow(hiddenHwnd, 5); // SW_SHOW
+                    WinList.Activate(hiddenHwnd);
+                    return;
+                }
+
+                // 2. Known Protocol Handlers for Background Daemons
+                string pn = item.ProcessName != null ? item.ProcessName.ToLowerInvariant() : "";
+                string ex = item.ExePath != null ? item.ExePath.ToLowerInvariant() : "";
+                string tt = item.Title != null ? item.Title.ToLowerInvariant() : "";
+
+                if (pn.Contains("securityhealth") || pn.Contains("sechealth") || tt.Contains("security") || tt.Contains("defender"))
+                {
+                    Process.Start(new ProcessStartInfo("windowsdefender:") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("spotify") || ex.Contains("spotify"))
+                {
+                    Process.Start(new ProcessStartInfo("spotify:") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("msteams") || pn.Contains("teams") || ex.Contains("msteams"))
+                {
+                    Process.Start(new ProcessStartInfo("msteams:") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("discord") || ex.Contains("discord"))
+                {
+                    Process.Start(new ProcessStartInfo("discord:") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("steam") || ex.Contains("steam"))
+                {
+                    Process.Start(new ProcessStartInfo("steam://open/main") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("chatgpt") || ex.Contains("chatgpt"))
+                {
+                    Process.Start(new ProcessStartInfo("chatgpt:") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("powertoys") || ex.Contains("powertoys"))
+                {
+                    Process.Start(new ProcessStartInfo("powertoys:") { UseShellExecute = true });
+                    return;
+                }
+                if (pn.Contains("slack") || ex.Contains("slack"))
+                {
+                    Process.Start(new ProcessStartInfo("slack:") { UseShellExecute = true });
+                    return;
+                }
+
+                // 3. Match against installed AppIndex for UWP / WindowsApps or shell items
+                if (app == null) app = WinDockApp.I;
+                if (app != null && app.Apps != null && app.Apps.All != null)
+                {
+                    AppEntry matched = null;
+                    lock (app.Apps.All)
+                    {
+                        matched = app.Apps.All.FirstOrDefault(a =>
+                        {
+                            if (a == null) return false;
+                            if (!string.IsNullOrEmpty(a.Parse))
+                            {
+                                string pkg = a.Parse.Split('!')[0];
+                                if (!string.IsNullOrEmpty(pkg) && ex.IndexOf(pkg, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                            }
+                            if (!string.IsNullOrEmpty(a.Target) && a.Target.Equals(item.ExePath, StringComparison.OrdinalIgnoreCase)) return true;
+                            if (!string.IsNullOrEmpty(a.Name))
+                            {
+                                if (a.Name.Equals(item.Title, StringComparison.OrdinalIgnoreCase)) return true;
+                                if (a.Name.Equals(item.ProcessName, StringComparison.OrdinalIgnoreCase)) return true;
+                            }
+                            return false;
+                        });
+                    }
+                    if (matched != null)
+                    {
+                        AppIndex.Launch(matched);
+                        return;
+                    }
+                }
+
+                // 4. Fallback: ShellExecute
                 if (!string.IsNullOrEmpty(item.ExePath) && File.Exists(item.ExePath))
                 {
                     Process.Start(new ProcessStartInfo(item.ExePath) { UseShellExecute = true });
                 }
             }
-            catch { }
+            catch (Exception ex) { WinDockApp.Log(ex); }
         }
     }
 
@@ -13281,7 +13395,7 @@ namespace WinDock
                     b.Click += () =>
                     {
                         CloseFlyout();
-                        SystrayReader.Activate(it);
+                        SystrayReader.Activate(it, app);
                     };
                     b.MouseRightButtonUp += (s, e) =>
                     {
@@ -13306,7 +13420,23 @@ namespace WinDock
                             }
                         }
 
-                        mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () => SystrayReader.Activate(it)));
+                        // App-specific quick actions
+                        string pnl = it.ProcessName != null ? it.ProcessName.ToLowerInvariant() : "";
+                        if (pnl.Contains("spotify"))
+                        {
+                            mis.Add(MI.Item("Play / Pause", "\uE768", () => N.Key(0xB3, false)));
+                            mis.Add(MI.Item("Next Track", "\uE893", () => N.Key(0xB0, false)));
+                            mis.Add(MI.Item("Previous Track", "\uE892", () => N.Key(0xB1, false)));
+                            mis.Add(MI.Sep());
+                        }
+                        else if (pnl.Contains("securityhealth") || it.Title.IndexOf("Security", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            mis.Add(MI.Item("Virus & threat protection", "\uE8B0", () => { try { Process.Start(new ProcessStartInfo("windowsdefender://threat") { UseShellExecute = true }); } catch { } }));
+                            mis.Add(MI.Item("Protection history", "\uE81C", () => { try { Process.Start(new ProcessStartInfo("windowsdefender://history") { UseShellExecute = true }); } catch { } }));
+                            mis.Add(MI.Sep());
+                        }
+
+                        mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () => SystrayReader.Activate(it, app)));
 
                         var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
                         bool isPinned = !string.IsNullOrEmpty(it.ExePath) && pl.Contains(it.ExePath);
