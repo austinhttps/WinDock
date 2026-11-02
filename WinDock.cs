@@ -6556,7 +6556,7 @@ namespace WinDock
             Child = g;
         }
 
-        public void Set(bool on, string subText)
+        public virtual void Set(bool on, string subText)
         {
             SetColors(on ? Th.Accent : Th.CardBg, on ? Th.AccentHover : Th.Hover);
             BorderBrush = on ? Th.Accent : Th.CardBorder;
@@ -6570,7 +6570,209 @@ namespace WinDock
             sep.Background = on ? DarkTint : Th.Faint;
         }
 
-        public void SetIcon(string glyph)
+        public virtual void SetIcon(string glyph)
+        {
+            if (ic != null) ic.Text = glyph;
+        }
+    }
+
+    // Inline-Schieberegler in der Kachel (z. B. Lautstärke, Helligkeit, Lautsprecher)
+    public class SliderTile : Tile
+    {
+        readonly Border fill, icBg, sep;
+        readonly TextBlock ic, title, sub, chev;
+        readonly Grid rootGrid, contentGrid;
+        readonly bool hasChevron;
+        double v;
+        Point startPt;
+        bool isIconArea, isChevArea, dragging, potentialClick;
+        public bool Dragging { get { return dragging; } }
+        public event Action<double> ValueChanged;
+        public event Action IconClick;
+        public event Action ChevronClick;
+
+        public SliderTile(string glyph, string t, bool chevron) : base(glyph, t, chevron)
+        {
+            hasChevron = chevron;
+            Padding = new Thickness(0);
+            ClipToBounds = true;
+
+            rootGrid = new Grid { ClipToBounds = true };
+
+            fill = new Border
+            {
+                Background = Th.Accent,
+                Opacity = 0.32,
+                CornerRadius = new CornerRadius(Math.Max(0, Th.CardR + 2)),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Width = 0,
+                IsHitTestVisible = false
+            };
+            rootGrid.Children.Add(fill);
+
+            contentGrid = U.G(null, new[] { U.Px(32), U.Star(1), U.Auto });
+            contentGrid.Margin = new Thickness(8, 0, chevron ? 6 : 8, 0);
+
+            icBg = new Border
+            {
+                Width = 32, Height = 32,
+                CornerRadius = new CornerRadius(16),
+                Background = Th.B(Th.A(Th.TextC, 18)),
+                Cursor = Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            ic = U.I(glyph, 13.5, Th.Text);
+            ic.HorizontalAlignment = HorizontalAlignment.Center;
+            ic.VerticalAlignment = VerticalAlignment.Center;
+            icBg.Child = ic;
+            icBg.MouseEnter += (s, e) => icBg.Background = Th.B(Th.A(Th.TextC, 40));
+            icBg.MouseLeave += (s, e) => icBg.Background = Th.B(Th.A(Th.TextC, 18));
+            U.Put(contentGrid, icBg, 0, 0);
+
+            var sp = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            title = U.T(t, 12, Th.Text, FontWeights.SemiBold);
+            title.HorizontalAlignment = HorizontalAlignment.Center;
+            title.TextTrimming = TextTrimming.CharacterEllipsis;
+            sub = U.T("", 11, Th.Muted);
+            sub.HorizontalAlignment = HorizontalAlignment.Center;
+            sub.Margin = new Thickness(0, 1, 0, 0);
+            sp.Children.Add(title);
+            sp.Children.Add(sub);
+            U.Put(contentGrid, sp, 0, 1);
+
+            var right = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Visibility = chevron ? Visibility.Visible : Visibility.Collapsed,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = Cursors.Hand
+            };
+            sep = new Border { Width = 1, Height = 20, Background = Th.Faint };
+            chev = U.I("", 9, Th.Muted);
+            chev.Margin = new Thickness(6, 0, 2, 0);
+            right.Children.Add(sep);
+            right.Children.Add(chev);
+            right.MouseEnter += (s, e) => { chev.Foreground = Th.Text; };
+            right.MouseLeave += (s, e) => { chev.Foreground = Th.Muted; };
+            U.Put(contentGrid, right, 0, 2);
+
+            rootGrid.Children.Add(contentGrid);
+            Child = rootGrid;
+
+            SizeChanged += (s, e) => UpdateFill();
+
+            MouseEnter += (s, e) => { fill.Opacity = 0.44; };
+            MouseLeave += (s, e) => { fill.Opacity = 0.32; };
+
+            LostMouseCapture += (s, e) => { dragging = false; potentialClick = false; };
+
+            PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                startPt = e.GetPosition(this);
+                isIconArea = startPt.X <= 42;
+                isChevArea = hasChevron && startPt.X >= ActualWidth - 28;
+                if (!isIconArea && !isChevArea)
+                {
+                    dragging = true;
+                    CaptureMouse();
+                    SetFromX(startPt.X);
+                }
+                else
+                {
+                    potentialClick = true;
+                    CaptureMouse();
+                }
+                e.Handled = true;
+            };
+
+            PreviewMouseMove += (s, e) =>
+            {
+                var p = e.GetPosition(this);
+                if (potentialClick)
+                {
+                    if (Math.Abs(p.X - startPt.X) > 4 || Math.Abs(p.Y - startPt.Y) > 4)
+                    {
+                        potentialClick = false;
+                        dragging = true;
+                        SetFromX(p.X);
+                    }
+                }
+                else if (dragging)
+                {
+                    SetFromX(p.X);
+                }
+                if (dragging || potentialClick) e.Handled = true;
+            };
+
+            PreviewMouseLeftButtonUp += (s, e) =>
+            {
+                if (IsMouseCaptured) ReleaseMouseCapture();
+                if (potentialClick)
+                {
+                    potentialClick = false;
+                    if (isIconArea && IconClick != null) IconClick();
+                    else if (isChevArea && ChevronClick != null) ChevronClick();
+                }
+                dragging = false;
+                e.Handled = true;
+            };
+
+            PreviewMouseWheel += (s, e) =>
+            {
+                Value = v + (e.Delta > 0 ? 0.05 : -0.05);
+                if (ValueChanged != null) ValueChanged(v);
+                e.Handled = true;
+            };
+        }
+
+        void SetFromX(double x)
+        {
+            Value = x / Math.Max(1.0, ActualWidth);
+            if (ValueChanged != null) ValueChanged(v);
+        }
+
+        public double Value
+        {
+            get { return v; }
+            set
+            {
+                v = Math.Max(0.0, Math.Min(1.0, value));
+                UpdateFill();
+            }
+        }
+
+        void UpdateFill()
+        {
+            fill.Width = Math.Max(0.0, ActualWidth * v);
+        }
+
+        public void SetTitle(string t)
+        {
+            if (title != null) title.Text = t;
+        }
+
+        public override void Set(bool on, string subText)
+        {
+            BorderBrush = Th.CardBorder;
+            title.Foreground = Th.Text;
+            sub.Foreground = on ? Th.Text : Th.Muted;
+            sub.Text = subText;
+            ic.Foreground = on ? Th.Text : Th.Muted;
+            chev.Foreground = Th.Muted;
+            sep.Background = Th.Faint;
+            fill.Background = Th.Accent;
+            fill.Opacity = on ? (IsMouseOver ? 0.44 : 0.32) : 0.12;
+            UpdateFill();
+        }
+
+        public override void SetIcon(string glyph)
         {
             if (ic != null) ic.Text = glyph;
         }
@@ -6768,7 +6970,8 @@ namespace WinDock
         public override string Id { get { return "controls"; } }
         public override string Title { get { return Loc.Tr("Steuerung"); } }
 
-        readonly Tile wifi, bt, audio, volume, brightness, night, dark, mic, awake, cast, batterySaver, dnd;
+        readonly Tile wifi, bt, night, dark, mic, awake, cast, batterySaver, dnd;
+        readonly SliderTile audio, volume, brightness;
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
@@ -6795,9 +6998,58 @@ namespace WinDock
             CoverDefault = MakeCoverBrush();
             wifi = new Tile("\uE701", "Wi-Fi", true);
             bt = new Tile("\uE702", "Bluetooth", true);
-            audio = new Tile("\uE767", "Audio", true);
-            volume = new Tile("\uE767", "Volume", true);
-            brightness = new Tile("\uE706", "Brightness", false);
+            audio = new SliderTile("\uE767", "Speakers", true);
+            volume = new SliderTile("\uE767", "Volume", true);
+            brightness = new SliderTile("\uE706", "Brightness", false);
+
+            audio.ValueChanged += v =>
+            {
+                Audio.Set(v);
+                int pct = (int)Math.Round(v * 100);
+                bool m = Audio.Muted();
+                audio.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                audio.SetIcon(Audio.Glyph(v, m));
+                if (volume != null && !volume.Dragging)
+                {
+                    volume.Value = v;
+                    volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                    volume.SetIcon(Audio.Glyph(v, m));
+                }
+                if (vol != null && !vol.Dragging) { vol.Value = v; vol.SetIcon(Audio.Glyph(v, m)); }
+            };
+            audio.IconClick += ToggleVolumeMute;
+            audio.ChevronClick += () => OpenAudio(audio);
+            audio.MouseRightButtonUp += (s, e) => { OpenAudio(audio); e.Handled = true; };
+
+            volume.ValueChanged += v =>
+            {
+                Audio.Set(v);
+                int pct = (int)Math.Round(v * 100);
+                bool m = Audio.Muted();
+                volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                volume.SetIcon(Audio.Glyph(v, m));
+                if (audio != null && !audio.Dragging)
+                {
+                    audio.Value = v;
+                    audio.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                    audio.SetIcon(Audio.Glyph(v, m));
+                }
+                if (vol != null && !vol.Dragging) { vol.Value = v; vol.SetIcon(Audio.Glyph(v, m)); }
+            };
+            volume.IconClick += ToggleVolumeMute;
+            volume.ChevronClick += () => OpenAudio(volume);
+            volume.MouseRightButtonUp += (s, e) => { OpenAudio(volume); e.Handled = true; };
+
+            brightness.ValueChanged += v =>
+            {
+                int b = (int)Math.Round(v * 100);
+                BrightnessControl.Set(b);
+                brightness.Set(b > 0, b >= 0 ? (b + "%") : "--");
+                if (bright != null && !bright.Dragging) bright.Value = v;
+            };
+            brightness.IconClick += CycleBrightness;
+            brightness.MouseRightButtonUp += (s, e) => { Settings("ms-settings:display"); e.Handled = true; };
+
             night = new Tile("\uE708", Loc.Tr("Nachtmodus"), false);
             dark = new Tile("\uE793", Loc.Tr("Dunkler Modus"), false);
             mic = new Tile("\uE720", Loc.Tr("Mikrofon"), false);
@@ -6812,22 +7064,6 @@ namespace WinDock
             RefreshDnd();
             wifi.Click += OpenWifi;
             bt.Click += OpenBluetooth;
-            audio.Click += OpenAudio;
-            volume.Click += ToggleVolumeMute;
-            volume.MouseRightButtonUp += (s, e) => { OpenAudio(); e.Handled = true; };
-            volume.PreviewMouseWheel += (s, e) =>
-            {
-                double cur = Audio.Get();
-                if (cur >= 0) { Audio.Set(Math.Max(0.0, Math.Min(1.0, cur + (e.Delta > 0 ? 0.05 : -0.05)))); RefreshVolume(); }
-                e.Handled = true;
-            };
-            brightness.Click += CycleBrightness;
-            brightness.PreviewMouseWheel += (s, e) =>
-            {
-                int cur = BrightnessControl.Get();
-                if (cur >= 0) { BrightnessControl.Set(Math.Max(0, Math.Min(100, cur + (e.Delta > 0 ? 5 : -5)))); RefreshBrightness(); }
-                e.Handled = true;
-            };
             night.Click += ToggleNight;
             dark.Click += ToggleDark;
             mic.Click += ToggleMic;
@@ -6835,7 +7071,7 @@ namespace WinDock
             {
                 { "wifi", new KeyValuePair<Tile, Action>(wifi, OpenWifi) },
                 { "bluetooth", new KeyValuePair<Tile, Action>(bt, OpenBluetooth) },
-                { "audio", new KeyValuePair<Tile, Action>(audio, OpenAudio) },
+                { "audio", new KeyValuePair<Tile, Action>(audio, () => OpenAudio(audio)) },
                 { "volume", new KeyValuePair<Tile, Action>(volume, ToggleVolumeMute) },
                 { "brightness", new KeyValuePair<Tile, Action>(brightness, CycleBrightness) },
                 { "night", new KeyValuePair<Tile, Action>(night, ToggleNight) },
@@ -7023,16 +7259,20 @@ namespace WinDock
             catch (Exception ex) { WinDockApp.Log(ex); }
         }
 
-        void OpenAudio()
+        void OpenAudio(UIElement anchor = null)
         {
             try
             {
                 Rect r;
-                if (audio.IsVisible)
+                var target = anchor ?? (audio != null && audio.IsVisible ? (UIElement)audio : (volume != null && volume.IsVisible ? (UIElement)volume : null));
+                if (target != null)
                 {
-                    var p = audio.PointToScreen(new Point(0, 0));
+                    var p = target.PointToScreen(new Point(0, 0));
                     double sc = WinDockApp.Scale();
-                    r = new Rect(p.X / sc, p.Y / sc, audio.ActualWidth * Th.K, audio.ActualHeight * Th.K);
+                    var fe = target as FrameworkElement;
+                    double w = fe != null ? fe.ActualWidth : 100;
+                    double h = fe != null ? fe.ActualHeight : 48;
+                    r = new Rect(p.X / sc, p.Y / sc, w * Th.K, h * Th.K);
                 }
                 else { var pr = App.Panel.ShellScreenRect(); r = new Rect(pr.X + 20, pr.Y + 40, 60, 40); }
                 AudioFlyout.Toggle(App, r);
@@ -7160,7 +7400,6 @@ namespace WinDock
         {
             RefreshVolume();
             RefreshBrightness();
-            audio.Set(true, Audio.DeviceName());
             RefreshMic();
             awake.Set(isAwake, isAwake ? Loc.Tr("An") : Loc.Tr("Aus"));
             cast.Set(false, Loc.Tr("Verbinden"));
@@ -7188,7 +7427,10 @@ namespace WinDock
 
         public override void Tick()
         {
-            if (vol != null && !vol.Dragging) RefreshVolume();
+            if (vol != null && vol.Dragging) return;
+            if (volume != null && volume.Dragging) return;
+            if (audio != null && audio.Dragging) return;
+            RefreshVolume();
         }
 
         void ToggleVolumeMute()
@@ -7213,7 +7455,11 @@ namespace WinDock
                 App.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (bright != null && !bright.Dragging) bright.Value = Math.Max(0.0, Math.Min(1.0, b / 100.0));
-                    if (brightness != null) brightness.Set(b > 0, b >= 0 ? (b + "%") : "--");
+                    if (brightness != null && !brightness.Dragging)
+                    {
+                        brightness.Value = Math.Max(0.0, Math.Min(1.0, b / 100.0));
+                        brightness.Set(b > 0, b >= 0 ? (b + "%") : "--");
+                    }
                 }));
             });
         }
@@ -7222,20 +7468,28 @@ namespace WinDock
         {
             double v = Audio.Get();
             bool m = Audio.Muted();
-            if (vol != null)
+            if (vol != null && !vol.Dragging)
             {
                 if (v >= 0) vol.Value = v;
                 vol.SetIcon(Audio.Glyph(v, m));
             }
             int pct = (int)Math.Round(v * 100);
-            if (volume != null)
+            if (volume != null && !volume.Dragging)
             {
+                if (v >= 0) volume.Value = v;
                 volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
                 volume.SetIcon(Audio.Glyph(v, m));
+                volume.ToolTip = Audio.DeviceName();
             }
-            if (audio != null)
+            if (audio != null && !audio.Dragging)
             {
-                audio.Set(true, Audio.DeviceName());
+                if (v >= 0) audio.Value = v;
+                string dev = Audio.DeviceName();
+                string shortTitle = (dev != null && dev.IndexOf("Headphone", StringComparison.OrdinalIgnoreCase) >= 0) ? "Headphones" : "Speakers";
+                audio.SetTitle(shortTitle);
+                audio.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                audio.SetIcon(Audio.Glyph(v, m));
+                audio.ToolTip = dev;
             }
         }
 
@@ -10983,7 +11237,7 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "wifi", "Wi-Fi", "\uE701" }, new[] { "bluetooth", "Bluetooth", "\uE702" }, new[] { "audio", "Audio Devices", "\uE767" },
+                new[] { "wifi", "Wi-Fi", "\uE701" }, new[] { "bluetooth", "Bluetooth", "\uE702" }, new[] { "audio", "Speakers", "\uE767" },
                 new[] { "volume", "Volume", "\uE767" }, new[] { "brightness", "Brightness", "\uE706" },
                 new[] { "night", "Night Light", "\uE708" }, new[] { "dark", "Dark Mode", "\uE793" }, new[] { "mic", "Microphone", "\uE720" },
                 new[] { "awake", "Keep Awake", "\uE7B3" }, new[] { "cast", "Cast & Mirror", "\uEC15" }, new[] { "batterysaver", "Battery Saver", "\uEBAA" }, new[] { "dnd", "Do Not Disturb", "\uE708" }
@@ -11623,8 +11877,19 @@ namespace WinDock
                         int i = r * 3 + ci;
                         if (i >= ids.Count) break;
                         var def = all.First(a => a[0] == ids[i]);
-                        var tile = new Tile(def[2], def[1], ids[i] != "dark" && ids[i] != "mic" && ids[i] != "awake" && ids[i] != "batterysaver" && ids[i] != "dnd");
-                        tile.Set(subs[ids[i]][0] == "1", subs[ids[i]][1]);
+                        Tile tile;
+                        if (ids[i] == "volume" || ids[i] == "audio" || ids[i] == "brightness")
+                        {
+                            var st = new SliderTile(def[2], def[1], ids[i] != "brightness");
+                            st.Value = ids[i] == "volume" || ids[i] == "audio" ? 0.65 : 0.8;
+                            st.Set(true, subs[ids[i]][1]);
+                            tile = st;
+                        }
+                        else
+                        {
+                            tile = new Tile(def[2], def[1], ids[i] != "dark" && ids[i] != "mic" && ids[i] != "awake" && ids[i] != "batterysaver" && ids[i] != "dnd");
+                            tile.Set(subs[ids[i]][0] == "1", subs[ids[i]][1]);
+                        }
                         U.Put(rg, tile, 0, ci * 2);
                     }
                     U.Put(g, rg, tileStartRow + r * 2, 0);

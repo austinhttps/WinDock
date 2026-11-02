@@ -11,7 +11,7 @@ A small pill at the edge of your screen that expands into a panel for controls, 
 ![.NET Framework](https://img.shields.io/badge/.NET%20Framework-4.8-512BD4)
 ![Single file](https://img.shields.io/badge/source-one%20C%23%20file-D4B266)
 ![No install](https://img.shields.io/badge/install-none-2ea44f)
-[![Build](https://github.com/NixFabo/WinDock/actions/workflows/build.yml/badge.svg)](https://github.com/NixFabo/WinDock/actions/workflows/build.yml)
+[![Build](https://github.com/austinhttps/WinDock/actions/workflows/build.yml/badge.svg)](https://github.com/austinhttps/WinDock/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 [Features](#features) · [Get started](#get-started) · [Usage](#usage) · [Customize](#customize) · [FAQ](#faq) · [Deutsch](README.de.md)
@@ -81,7 +81,7 @@ Press <kbd>Win</kbd> or click the pill and it grows into a panel with six tabs:
 ## Requirements
 
 | | |
-|---|---|
+| --- | --- |
 | **OS** | Windows 11 (Windows 10 should work but isn't tested) |
 | **Runtime** | .NET Framework 4.8, already part of Windows 10/11 |
 | **Rights** | No administrator rights needed, installs per user |
@@ -90,7 +90,7 @@ Press <kbd>Win</kbd> or click the pill and it grows into a panel with six tabs:
 
 ### Option A: installer (recommended)
 
-1. Download **`WinDockSetup.exe`** from the [latest release](https://github.com/NixFabo/WinDock/releases/latest).
+1. Download **`WinDockSetup.exe`** from the [latest release](https://github.com/austinhttps/WinDock/releases/latest).
 2. Run it and click **Install**. No administrator rights needed: WinDock is installed for your user only, to `%LOCALAPPDATA%\Programs\WinDock`.
 3. Setup adds a **Start menu** shortcut and, if you leave the box checked, starts WinDock **with Windows**. A desktop shortcut is optional.
 
@@ -107,7 +107,7 @@ Download **`WinDock.exe`** from the same release, put it in its own folder (e.g.
 ### Build it yourself (about 10 seconds)
 
 ```bat
-git clone https://github.com/NixFabo/WinDock.git WinDock
+git clone https://github.com/austinhttps/WinDock.git WinDock
 cd WinDock
 build.bat
 installer\build-installer.bat   &:: optional, builds WinDockSetup.exe
@@ -122,7 +122,7 @@ On first start WinDock creates `config.json` and a `data` folder next to the exe
 ## Usage
 
 | Action | Result |
-|---|---|
+| --- | --- |
 | <kbd>Win</kbd> alone | Open the panel |
 | <kbd>Win</kbd> + any key | Works as usual (<kbd>Win</kbd>+<kbd>E</kbd>, <kbd>Win</kbd>+<kbd>L</kbd>, …) |
 | Click the pill | Open the panel |
@@ -143,7 +143,7 @@ Shortcuts inside tabs use <kbd>Alt</kbd>+letter, because plain typing goes to se
 Right-click the pill → **Settings**. Search on the left, options in the middle, live preview on the right. <kbd>Ctrl</kbd>+<kbd>S</kbd> saves and applies instantly. The editor is only loaded while it's open, so WinDock stays light.
 
 | Section | Highlights |
-|---|---|
+| --- | --- |
 | **General** | Language, UI size, Win key, extra global shortcut, type-to-search, Windows taskbar, start with Windows |
 | **Pill** | Always / at edge / off · height, font size, roundness, border · order of all elements · clock with seconds, date format · song width · grouped or per-window app icons, icon size · click, scroll and middle-click behavior · edge-line size and delay |
 | **Panel** | Size, radius, border · tab style (pill / underline / text), labels (text / icons / both), alignment · start tab · open effect (morph / fade / slide / none), duration, shadow |
@@ -191,7 +191,7 @@ Windows doesn't offer a public API for toggling them, so WinDock opens the right
 <details>
 <summary><b>Something went wrong.</b></summary>
 
-Errors are written to `data\error.log`. The running version is shown at the bottom of the right-click menu. Please attach both to an [issue](https://github.com/NixFabo/WinDock/issues/new/choose).
+Errors are written to `data\error.log`. The running version is shown at the bottom of the right-click menu. Please attach both to an [issue](https://github.com/austinhttps/WinDock/issues/new/choose).
 </details>
 
 ## Project layout
@@ -221,7 +221,6 @@ The workflow builds `WinDock.exe` and `WinDockSetup.exe`, stamps the version int
 WinDock is free and open source, and it stays that way: no ads, no tracking, no paid features.
 If it makes your desktop a little nicer, you can buy me a coffee:
 
-
 You'll also find **Support WinDock** in the pill's right-click menu. Starring the repo and reporting bugs help just as much. Thank you!
 
 ## Contributing
@@ -243,10 +242,10 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 Release binaries (`WinDockSetup.exe`, `WinDock.exe`) are built from this repository by GitHub Actions. Only builds of tagged releases are signed, and every signing request is approved manually.
 
 | Role | Members |
-|---|---|
-| Authors / committers | [NixFabo](https://github.com/NixFabo) |
-| Reviewers | [NixFabo](https://github.com/NixFabo) |
-| Approvers | [NixFabo](https://github.com/NixFabo) |
+| --- | --- |
+| Authors / committers | [austinhttps](https://github.com/austinhttps) |
+| Reviewers | [austinhttps](https://github.com/austinhttps) |
+| Approvers | [austinhttps](https://github.com/austinhttps) |
 
 Changes from outside contributors are merged only after review.
 
