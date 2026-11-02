@@ -4306,9 +4306,29 @@ namespace WinDock
             if (procInfo.TryGetValue(pid, out r)) return r;
             string path = null, name = "";
             try { path = N.ProcessPath(pid); } catch { }
+            if (string.IsNullOrEmpty(path))
+            {
+                try
+                {
+                    var p = Process.GetProcessById((int)pid);
+                    if (p != null)
+                    {
+                        if (p.ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
+                        {
+                            path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+                            name = "File Explorer";
+                        }
+                        else
+                        {
+                            name = p.ProcessName;
+                        }
+                    }
+                }
+                catch { }
+            }
             if (!string.IsNullOrEmpty(path))
             {
-                name = System.IO.Path.GetFileNameWithoutExtension(path);
+                if (string.IsNullOrEmpty(name)) name = System.IO.Path.GetFileNameWithoutExtension(path);
                 try
                 {
                     var d = FileVersionInfo.GetVersionInfo(path).FileDescription;
@@ -4925,7 +4945,7 @@ namespace WinDock
                     try { item.Icon = N.ShellIcon(star, 48); } catch { }
                 }
 
-                string matchKey = null;
+                var matchedKeys = new List<string>();
                 string starFile = System.IO.Path.GetFileName(star);
                 string starNoExt = System.IO.Path.GetFileNameWithoutExtension(star);
                 foreach (var kvp in groups)
@@ -4939,7 +4959,8 @@ namespace WinDock
                                             string.Equals(star, "explorer", StringComparison.OrdinalIgnoreCase) ||
                                             string.Equals(starNoExt, "explorer", StringComparison.OrdinalIgnoreCase) ||
                                             (ae != null && ae.Name != null && ae.Name.IndexOf("Explorer", StringComparison.OrdinalIgnoreCase) >= 0)) &&
-                                           (!string.IsNullOrEmpty(firstWFile) && firstWFile.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase));
+                                           ((!string.IsNullOrEmpty(firstWFile) && firstWFile.Equals("explorer.exe", StringComparison.OrdinalIgnoreCase)) ||
+                                            (!string.IsNullOrEmpty(firstW.Name) && firstW.Name.IndexOf("Explorer", StringComparison.OrdinalIgnoreCase) >= 0));
 
                     bool isMatch = isExplorerMatch ||
                                    string.Equals(kvp.Key, star, StringComparison.OrdinalIgnoreCase) ||
@@ -4952,15 +4973,18 @@ namespace WinDock
                                                                                          string.Equals(System.IO.Path.GetFileNameWithoutExtension(ae.Target), firstWNoExt, StringComparison.OrdinalIgnoreCase)))));
                     if (isMatch)
                     {
-                        matchKey = kvp.Key;
-                        break;
+                        matchedKeys.Add(kvp.Key);
                     }
                 }
 
-                if (matchKey != null)
+                if (matchedKeys.Count > 0)
                 {
-                    matchedRunning.Add(matchKey);
-                    item.Windows = groups[matchKey];
+                    item.Windows = new List<WinItem>();
+                    foreach (var mk in matchedKeys)
+                    {
+                        matchedRunning.Add(mk);
+                        item.Windows.AddRange(groups[mk]);
+                    }
                     if (item.Icon == null && item.Windows.Count > 0) item.Icon = WinList.Icon(item.Windows[0]);
                 }
                 dockItems.Add(item);
