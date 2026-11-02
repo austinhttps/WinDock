@@ -4503,18 +4503,18 @@ namespace WinDock
             camBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             trayBtn = new Btn(U.I("\uE70E", fs, Th.Text), Brushes.Transparent, Th.Hover, (h - 10) / 2, new Thickness(6, 3, 6, 3));
-            trayBtn.ToolTip = Loc.Tr("Infobereich (System-Tray)");
+            trayBtn.ToolTip = "System Tray";
             trayBtn.Click += () => TrayFlyout.Toggle(app, app.PillRect(), overflowDockItems);
             trayBtn.MouseRightButtonUp += (s, e) =>
             {
                 var pt = MenuAnchor(ScreenDip(e));
                 var mis = new List<MI>
                 {
-                    MI.Item(Loc.Tr("Infobereich (System-Tray) öffnen"), "\uE70E", "Win+B", () => N.OpenTrayOverflow()),
-                    MI.Item(Loc.Tr("Schnelleinstellungen (WLAN, Sound)"), "\uE713", "Win+A", () => N.OpenQuickSettings()),
-                    MI.Item(Loc.Tr("Benachrichtigungscenter"), "\uEA8F", "Win+N", () => N.OpenNotificationCenter()),
+                    MI.Item("Open Windows System Tray", "\uE70E", "Win+B", () => N.OpenTrayOverflow()),
+                    MI.Item("Windows Quick Settings", "\uE713", "Win+A", () => N.OpenQuickSettings()),
+                    MI.Item("Windows Action Center", "\uEA8F", "Win+N", () => N.OpenNotificationCenter()),
                     MI.Sep(),
-                    MI.Item(app.TaskbarHidden ? Loc.Tr("Windows-Taskleiste zeigen") : Loc.Tr("Windows-Taskleiste ausblenden"), "\uE75B", () => app.ToggleWindowsTaskbar())
+                    MI.Item(app.TaskbarHidden ? "Show Windows Taskbar" : "Hide Windows Taskbar", "\uE75B", () => app.ToggleWindowsTaskbar())
                 };
                 new MenuWindow(app, mis, pt).Open();
                 e.Handled = true;
@@ -12036,6 +12036,148 @@ namespace WinDock
     // -----------------------------------------------------------------
     //  Infobereich / System-Tray & Overflow-Apps Flyout
     // -----------------------------------------------------------------
+    public class SystrayItem
+    {
+        public string ExePath;
+        public string ProcessName;
+        public string Title;
+        public ImageSource Icon;
+        public uint Pid;
+        public IntPtr MainWindowHandle;
+    }
+
+    public static class SystrayReader
+    {
+        public static string ResolvePath(string p)
+        {
+            if (string.IsNullOrEmpty(p)) return p;
+            var m = Regex.Match(p, @"^\{([0-9A-Fa-f\-]+)\}(.*)$");
+            if (m.Success)
+            {
+                string guid = m.Groups[1].Value;
+                string rest = m.Groups[2].Value.TrimStart('\\');
+                if (guid.Equals("1AC14E77-02E7-4E5D-B744-2EB1AE5198B7", StringComparison.OrdinalIgnoreCase))
+                    return Path.Combine(Environment.SystemDirectory, rest);
+                if (guid.Equals("6D809377-6AF0-444B-8957-A3773F02200E", StringComparison.OrdinalIgnoreCase))
+                    return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), rest);
+                if (guid.Equals("7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E", StringComparison.OrdinalIgnoreCase))
+                    return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), rest);
+                if (guid.Equals("F38BF404-1D43-42F2-9305-67DE0B28FC23", StringComparison.OrdinalIgnoreCase))
+                    return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), rest);
+            }
+            return p;
+        }
+
+        public static List<SystrayItem> GetActiveItems()
+        {
+            var res = new List<SystrayItem>();
+            try
+            {
+                var procMap = new Dictionary<string, Process>(StringComparer.OrdinalIgnoreCase);
+                foreach (var p in Process.GetProcesses())
+                {
+                    try { procMap[p.ProcessName] = p; } catch { }
+                }
+
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                using (var key = Registry.CurrentUser.OpenSubKey(@"Control Panel\NotifyIconSettings"))
+                {
+                    if (key == null) return res;
+                    foreach (var sub in key.GetSubKeyNames())
+                    {
+                        using (var k = key.OpenSubKey(sub))
+                        {
+                            if (k == null) continue;
+                            var rawExe = k.GetValue("ExecutablePath") as string;
+                            if (string.IsNullOrEmpty(rawExe)) continue;
+                            string path = ResolvePath(rawExe);
+                            string proc = Path.GetFileNameWithoutExtension(path);
+                            if (string.IsNullOrEmpty(proc)) continue;
+                            if (proc.Equals("WinDock", StringComparison.OrdinalIgnoreCase) || proc.Equals("WinDockTest", StringComparison.OrdinalIgnoreCase) || proc.Equals("explorer", StringComparison.OrdinalIgnoreCase)) continue;
+
+                            if (procMap.ContainsKey(proc))
+                            {
+                                if (seen.Contains(proc)) continue;
+                                seen.Add(proc);
+                                var p = procMap[proc];
+                                var tip = k.GetValue("Tooltip") as string;
+                                var bytes = k.GetValue("IconSnapshot") as byte[];
+                                ImageSource img = null;
+                                if (bytes != null && bytes.Length > 0)
+                                {
+                                    try
+                                    {
+                                        using (var ms = new MemoryStream(bytes))
+                                        {
+                                            img = BitmapFrame.Create(ms, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                                        }
+                                    }
+                                    catch { }
+                                }
+                                if (img == null && File.Exists(path))
+                                {
+                                    try { img = N.ShellIcon(path, 32); } catch { }
+                                }
+                                string desc = "";
+                                try { if (File.Exists(path)) desc = FileVersionInfo.GetVersionInfo(path).FileDescription; } catch { }
+                                string title = !string.IsNullOrWhiteSpace(tip) ? tip : (!string.IsNullOrWhiteSpace(desc) ? desc : proc);
+
+                                res.Add(new SystrayItem
+                                {
+                                    ExePath = path,
+                                    ProcessName = proc,
+                                    Title = title,
+                                    Icon = img,
+                                    Pid = (uint)p.Id,
+                                    MainWindowHandle = p.MainWindowHandle
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { WinDockApp.Log(ex); }
+            return res;
+        }
+
+        public static void Activate(SystrayItem item)
+        {
+            if (item == null) return;
+            try
+            {
+                if (item.MainWindowHandle != IntPtr.Zero && N.IsWindowVisible(item.MainWindowHandle))
+                {
+                    WinList.Activate(item.MainWindowHandle);
+                    return;
+                }
+                IntPtr found = IntPtr.Zero;
+                N.EnumWindows((h, l) =>
+                {
+                    if (!N.IsWindowVisible(h)) return true;
+                    uint pid; N.GetWindowThreadProcessId(h, out pid);
+                    if (pid == item.Pid)
+                    {
+                        found = h;
+                        return false;
+                    }
+                    return true;
+                }, IntPtr.Zero);
+
+                if (found != IntPtr.Zero)
+                {
+                    WinList.Activate(found);
+                    return;
+                }
+
+                if (!string.IsNullOrEmpty(item.ExePath) && File.Exists(item.ExePath))
+                {
+                    Process.Start(new ProcessStartInfo(item.ExePath) { UseShellExecute = true });
+                }
+            }
+            catch { }
+        }
+    }
+
     public class TrayFlyout : Window
     {
         public static TrayFlyout Current;
@@ -12128,10 +12270,46 @@ namespace WinDock
         {
             sp.Children.Clear(); rows.Clear(); rowKeys.Clear();
 
-            // 1. Extra / Overflow Apps
+            // 1. Actual System Tray Icons
+            var systrayItems = SystrayReader.GetActiveItems();
+            sp.Children.Add(Head("System Tray" + (systrayItems.Count > 0 ? " (" + systrayItems.Count + ")" : "")));
+            if (systrayItems.Count > 0)
+            {
+                var trayWrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 4, 8) };
+                foreach (var trayItem in systrayItems)
+                {
+                    var it = trayItem;
+                    var cell = new Grid { Width = 36, Height = 36 };
+                    UIElement icon = it.Icon != null ? (UIElement)new Image { Source = it.Icon, Width = 20, Height = 20 } : U.Letter(it.Title, 20);
+                    if (icon is Image) RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
+                    ((FrameworkElement)icon).HorizontalAlignment = HorizontalAlignment.Center;
+                    ((FrameworkElement)icon).VerticalAlignment = VerticalAlignment.Center;
+                    cell.Children.Add(icon);
+
+                    var b = new Btn(cell, Brushes.Transparent, Th.Hover, 10, new Thickness(0)) { Margin = new Thickness(2) };
+                    b.ToolTip = it.Title;
+                    b.Click += () =>
+                    {
+                        CloseFlyout();
+                        SystrayReader.Activate(it);
+                    };
+                    trayWrap.Children.Add(b);
+                }
+                sp.Children.Add(trayWrap);
+            }
+            else
+            {
+                var empty = U.T("No background notification icons running", 12, Th.Muted);
+                empty.Margin = new Thickness(10, 2, 10, 8);
+                sp.Children.Add(empty);
+            }
+
+            sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(6, 4, 6, 8) });
+
+            // 2. Extra / Overflow Apps
             if (overflowApps.Count > 0)
             {
-                sp.Children.Add(Head(Loc.Tr("Weitere Apps") + " (" + overflowApps.Count + ")"));
+                sp.Children.Add(Head("Overflow Apps (" + overflowApps.Count + ")"));
                 var appsWrap = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 4, 4, 8) };
                 foreach (var appItem in overflowApps)
                 {
@@ -12175,13 +12353,13 @@ namespace WinDock
                 sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(6, 4, 6, 8) });
             }
 
-            // 2. System-Tray & Schnelleinstellungen
-            sp.Children.Add(Head(Loc.Tr("Infobereich & Schnelleinstellungen")));
+            // 3. Quick Settings
+            sp.Children.Add(Head("Quick Settings"));
 
             // Wi-Fi
             WifiState.UpdateIfNeeded();
             string wifiTitle = WifiState.Connected ? "Wi-Fi: " + WifiState.Ssid : "Wi-Fi";
-            string wifiSub = WifiState.Connected ? (WifiState.SignalPercent >= 0 ? WifiState.SignalPercent + "% · " + Loc.Tr("Verbunden") : Loc.Tr("Verbunden")) : Loc.Tr("Nicht verbunden");
+            string wifiSub = WifiState.Connected ? (WifiState.SignalPercent >= 0 ? WifiState.SignalPercent + "% · Connected" : "Connected") : "Not connected";
             AddRow(WifiState.Glyph, wifiTitle, wifiSub, () =>
             {
                 CloseFlyout();
@@ -12190,7 +12368,7 @@ namespace WinDock
 
             // Bluetooth
             bool btOn = N.IsBluetoothOn();
-            AddRow("\uE702", "Bluetooth", btOn ? Loc.Tr("Aktiv · Klicken für Geräte") : Loc.Tr("Aus"), () =>
+            AddRow("\uE702", "Bluetooth", btOn ? "On · Click for devices" : "Off", () =>
             {
                 CloseFlyout();
                 BluetoothFlyout.Toggle(app, anchor);
@@ -12198,7 +12376,7 @@ namespace WinDock
 
             // Sound
             int vol = (int)Math.Round(Audio.Get() * 100);
-            AddRow("\uE767", Loc.Tr("Sound & Lautstärke"), vol + "%", () =>
+            AddRow("\uE767", "Sound & Volume", vol + "%", () =>
             {
                 CloseFlyout();
                 AudioFlyout.Toggle(app, anchor);
@@ -12210,8 +12388,8 @@ namespace WinDock
                 int pct = BatteryStatus.Percent;
                 bool chg = BatteryStatus.IsCharging;
                 bool saver = BatteryStatus.IsBatterySaver;
-                string batSub = pct + "% · " + (chg ? Loc.Tr("Netzbetrieb") : saver ? Loc.Tr("Stromsparmodus") : Loc.Tr("Akkubetrieb"));
-                AddRow(BatteryStatus.Glyph(pct, chg), Loc.Tr("Akku"), batSub, () =>
+                string batSub = pct + "% · " + (chg ? "Charging" : saver ? "Battery Saver" : "On battery");
+                AddRow(BatteryStatus.Glyph(pct, chg), "Battery", batSub, () =>
                 {
                     CloseFlyout();
                     AppIndex.Open("ms-settings:batterysaver");
@@ -12220,7 +12398,7 @@ namespace WinDock
 
             // Do Not Disturb
             bool dnd = DndControl.IsDnd();
-            AddRow("\uE708", Loc.Tr("Nicht stören"), dnd ? Loc.Tr("An") : Loc.Tr("Aus"), () =>
+            AddRow("\uE708", "Do Not Disturb", dnd ? "On" : "Off", () =>
             {
                 DndControl.Toggle();
                 if (app.Pill != null) app.Pill.Refresh();
@@ -12229,22 +12407,22 @@ namespace WinDock
 
             // Keep Awake
             bool awake = ControlsTab.IsAwakeActive;
-            AddRow("\uE7B3", Loc.Tr("Wach bleiben"), awake ? Loc.Tr("An") : Loc.Tr("Aus"), () =>
+            AddRow("\uE7B3", "Keep Awake", awake ? "On" : "Off", () =>
             {
                 ControlsTab.ToggleKeepAwakeStatic();
                 if (app.Pill != null) app.Pill.Refresh();
                 CloseFlyout();
             });
 
-            // Windows-Benachrichtigungscenter
-            AddRow("\uEA8F", Loc.Tr("Benachrichtigungscenter"), "Win+N", () =>
+            // Windows Action Center
+            AddRow("\uEA8F", "Windows Action Center", "Win+N", () =>
             {
                 CloseFlyout();
                 N.OpenNotificationCenter();
             });
 
-            // Windows-Taskleiste umschalten
-            AddRow("\uE75B", app.TaskbarHidden ? Loc.Tr("Windows-Taskleiste zeigen") : Loc.Tr("Windows-Taskleiste ausblenden"), Loc.Tr("Umschalten"), () =>
+            // Toggle Windows Taskbar
+            AddRow("\uE75B", app.TaskbarHidden ? "Show Windows Taskbar" : "Hide Windows Taskbar", "Toggle", () =>
             {
                 app.ToggleWindowsTaskbar();
                 CloseFlyout();
