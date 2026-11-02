@@ -2892,6 +2892,7 @@ namespace WinDock
         public static double Temp = double.NaN;
         public static int Code = -1;
         public static string Place = "";
+        public static bool IsDay = true;
         public static DateTime Fetched = DateTime.MinValue;
         static string coordFor; static double lat, lon;
         static int busy;
@@ -2976,13 +2977,13 @@ namespace WinDock
                         // Priority 1: Device Location (Windows GPS / Wi-Fi positioning)
                         if (TryGetDeviceLocation(out targetLat, out targetLon))
                         {
-                            targetPlace = Loc.Tr("Aktueller Ort");
+                            targetPlace = "Current Location";
                         }
 
                         // Priority 2: IP-based location
                         if (double.IsNaN(targetLat) && TryGetIpLocation(wc, out targetLat, out targetLon, out targetPlace))
                         {
-                            if (string.IsNullOrEmpty(targetPlace)) targetPlace = Loc.Tr("Aktueller Ort");
+                            if (string.IsNullOrEmpty(targetPlace)) targetPlace = "Current Location";
                         }
 
                         // Priority 3: Fallback city from configuration
@@ -3009,12 +3010,19 @@ namespace WinDock
                         if (!double.IsNaN(targetLat) && !double.IsNaN(targetLon))
                         {
                             string url = string.Format(CultureInfo.InvariantCulture,
-                                "https://api.open-meteo.com/v1/forecast?latitude={0}&longitude={1}&current=temperature_2m,weather_code{2}",
+                                "https://api.open-meteo.com/v1/forecast?latitude={0}&longitude={1}&current=temperature_2m,weather_code,is_day{2}",
                                 targetLat, targetLon, fahrenheit ? "&temperature_unit=fahrenheit" : "");
                             var d = Json.Parse(wc.DownloadString(url)) as Dictionary<string, object>;
                             var cur = (Dictionary<string, object>)d["current"];
                             Temp = Convert.ToDouble(cur["temperature_2m"], CultureInfo.InvariantCulture);
                             Code = Convert.ToInt32(cur["weather_code"], CultureInfo.InvariantCulture);
+                            if (cur.ContainsKey("is_day"))
+                                IsDay = Convert.ToInt32(cur["is_day"], CultureInfo.InvariantCulture) == 1;
+                            else
+                            {
+                                int hr = DateTime.Now.Hour;
+                                IsDay = hr >= 6 && hr < 20;
+                            }
                             Place = targetPlace;
                             Fetched = DateTime.Now;
                         }
@@ -3031,6 +3039,16 @@ namespace WinDock
 
         public static string Symbol(int c)
         {
+            if (!IsDay)
+            {
+                if (c == 0) return "🌙";
+                if (c <= 2) return "🌙";
+                if (c == 3 || c == 45 || c == 48) return "☁";
+                if ((c >= 71 && c <= 77) || c == 85 || c == 86) return "❄";
+                if (c >= 95) return "⚡";
+                if (c >= 51) return "☂";
+                return "🌙";
+            }
             if (c == 0) return "☀";
             if (c <= 2) return "⛅";
             if (c == 3 || c == 45 || c == 48) return "☁";
@@ -3042,18 +3060,18 @@ namespace WinDock
 
         public static string Text(int c)
         {
-            if (c == 0) return Loc.Tr("Klar");
-            if (c == 1) return Loc.Tr("Überwiegend klar");
-            if (c == 2) return Loc.Tr("Teils bewölkt");
-            if (c == 3) return Loc.Tr("Bedeckt");
-            if (c == 45 || c == 48) return Loc.Tr("Nebel");
-            if (c >= 51 && c <= 57) return Loc.Tr("Nieselregen");
-            if (c >= 61 && c <= 67) return Loc.Tr("Regen");
-            if (c >= 71 && c <= 77) return Loc.Tr("Schnee");
-            if (c >= 80 && c <= 82) return Loc.Tr("Regenschauer");
-            if (c == 85 || c == 86) return Loc.Tr("Schneeschauer");
-            if (c >= 95) return Loc.Tr("Gewitter");
-            return "";
+            if (c == 0) return IsDay ? "Clear" : "Clear Night";
+            if (c == 1) return IsDay ? "Mainly Clear" : "Partly Clear";
+            if (c == 2) return "Partly Cloudy";
+            if (c == 3) return "Overcast";
+            if (c == 45 || c == 48) return "Fog";
+            if (c >= 51 && c <= 57) return "Drizzle";
+            if (c >= 61 && c <= 67) return "Rain";
+            if (c >= 71 && c <= 77) return "Snow";
+            if (c >= 80 && c <= 82) return "Rain Showers";
+            if (c == 85 || c == 86) return "Snow Showers";
+            if (c >= 95) return "Thunderstorm";
+            return IsDay ? "Clear" : "Clear Night";
         }
     }
 
@@ -4549,7 +4567,7 @@ namespace WinDock
             clock = U.T("", fs, Th.Text, FontWeights.SemiBold);
             date = U.T("", fs, Th.Muted);
             weatherTx = U.T("", fs, Th.Text);
-            weatherTx.ToolTip = Loc.Tr("Wetter");
+            weatherTx.ToolTip = "Weather";
 
             batterySp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             batteryIc = U.I("\uEBB5", fs, Th.Text);
@@ -4617,13 +4635,13 @@ namespace WinDock
             // Mikrofon & Kamera Status-Symbole (in Benutzung / stumm)
             micBtn = new Btn(U.I("\uE720", fs, Th.B(Color.FromRgb(240, 90, 80))), Th.B(Color.FromArgb(40, 240, 90, 80)), Th.B(Color.FromArgb(70, 240, 90, 80)), (h - 10) / 2, new Thickness(7, 3, 7, 3));
             micBtn.Visibility = Visibility.Collapsed;
-            micBtn.ToolTip = Loc.Tr("Mikrofon");
+            micBtn.ToolTip = "Microphone";
             micBtn.Click += () => { if (app.MicMuted) { Audio.SetMicMuted(false); app.MicMuted = false; Refresh(); } };
             micBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             camBtn = new Btn(U.I("\uE722", fs, Th.B(Color.FromRgb(255, 170, 40))), Th.B(Color.FromArgb(40, 255, 170, 40)), Th.B(Color.FromArgb(70, 255, 170, 40)), (h - 10) / 2, new Thickness(7, 3, 7, 3));
             camBtn.Visibility = Visibility.Collapsed;
-            camBtn.ToolTip = Loc.Tr("Kamera aktiv");
+            camBtn.ToolTip = "Camera active";
             camBtn.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             trayBtn = new Btn(U.I("\uE70E", fs, Th.Text), Brushes.Transparent, Th.Hover, (h - 10) / 2, new Thickness(6, 3, 6, 3));
@@ -4812,7 +4830,7 @@ namespace WinDock
                 var ic = micBtn.Child as TextBlock;
                 if (ic != null) { ic.Text = "\uE720"; ic.Foreground = Th.B(Color.FromRgb(255, 170, 40)); }
                 micBtn.SetColors(Th.B(Color.FromArgb(40, 255, 170, 40)), Th.B(Color.FromArgb(70, 255, 170, 40)));
-                micBtn.ToolTip = Loc.Tr("Mikrofon wird verwendet");
+                micBtn.ToolTip = "Microphone is in use";
             }
             else if (app.MicMuted && showMicMuted)
             {
@@ -4820,7 +4838,7 @@ namespace WinDock
                 var ic = micBtn.Child as TextBlock;
                 if (ic != null) { ic.Text = "\uE720"; ic.Foreground = Th.B(Color.FromRgb(240, 90, 80)); }
                 micBtn.SetColors(Th.B(Color.FromArgb(40, 240, 90, 80)), Th.B(Color.FromArgb(70, 240, 90, 80)));
-                micBtn.ToolTip = Loc.Tr("Mikrofon stumm – klicken zum Einschalten");
+                micBtn.ToolTip = "Microphone muted - click to unmute";
             }
             else
             {
@@ -4862,7 +4880,7 @@ namespace WinDock
             if (DndControl.IsDnd())
             {
                 statusDnd.Visibility = Visibility.Visible;
-                statusDnd.ToolTip = Loc.Tr("Do not disturb");
+                statusDnd.ToolTip = "Do Not Disturb";
             }
             else
             {
@@ -4872,7 +4890,7 @@ namespace WinDock
             if (ControlsTab.IsAwakeActive)
             {
                 statusAwake.Visibility = Visibility.Visible;
-                statusAwake.ToolTip = Loc.Tr("Keep awake");
+                statusAwake.ToolTip = "Keep Screen Awake";
             }
             else
             {
@@ -5292,9 +5310,9 @@ namespace WinDock
                         appDragKey = null;
                     }
                 };
-                if (it.Windows.Count > 1) b.ToolTip = it.Name + " (" + it.Windows.Count + " " + Loc.Tr("Fenster") + ")";
+                if (it.Windows.Count > 1) b.ToolTip = it.Name + " (" + it.Windows.Count + " windows)";
                 else if (it.Windows.Count == 1) b.ToolTip = it.Windows[0].Title;
-                else b.ToolTip = it.Name + " (" + Loc.Tr("Favorit") + ")";
+                else b.ToolTip = it.Name + " (Pinned)";
 
                 var curItem = it;
                 b.Click += () =>
@@ -5358,13 +5376,16 @@ namespace WinDock
                     else
                     {
                         var mis = new List<MI>();
-                        mis.Add(MI.Item(curItem.Name + Loc.Tr(" starten"), "\uE768", () =>
+                        mis.Add(MI.Item("Start " + curItem.Name, "\uE768", () =>
                         {
                             if (curItem.App != null) AppIndex.Launch(curItem.App);
-                            else try { Process.Start(curItem.Parse); } catch { }
+                            else if (!AppIndex.TryLaunchChromeApp(curItem.Parse, curItem.Name))
+                            {
+                                try { Process.Start(curItem.Parse); } catch { }
+                            }
                         }));
                         mis.Add(MI.Sep());
-                        mis.Add(MI.Item(Loc.Tr("Von Pille l\u00f6sen"), "\uE77A", () =>
+                        mis.Add(MI.Item("Unpin from pill", "\uE77A", () =>
                         {
                             var st = app.Store.Strs("starred");
                             st.Remove(curItem.Parse);
@@ -6005,7 +6026,7 @@ namespace WinDock
             U.Put(bar, clockSp, 0, 0);
             var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
             var helpBtn = U.IconBtn("\uE897", 32, 14, Brushes.Transparent, Th.Surface, Th.Muted);
-            helpBtn.ToolTip = Loc.Tr("Tastenkürzel (F1)");
+            helpBtn.ToolTip = "Keyboard shortcuts (F1)";
             helpBtn.Click += () => ToggleHelp();
             var gear = gearBtn = U.IconBtn("\uE713", 32, 14, Brushes.Transparent, Th.Surface, Th.Muted);
             gear.Margin = new Thickness(4, 0, 0, 0);
@@ -7489,10 +7510,10 @@ namespace WinDock
             startTx = U.T("Start", 13.5, Th.AccentText, FontWeights.SemiBold); startTx.HorizontalAlignment = HorizontalAlignment.Center;
             startBtn = new Btn(startTx, Th.Accent, Th.AccentHover, 12, new Thickness(0, 8, 0, 8));
             startBtn.Click += StartPause;
-            startBtn.ToolTip = Loc.Tr("Start / Pause (Alt+S)");
+            startBtn.ToolTip = "Start / Pause (Alt+S)";
             var reset = new Btn(U.I("\uE72C", 13, Th.Text), Th.Surface2, Th.Hover, 12, new Thickness(0));
             reset.Height = 36;
-            reset.ToolTip = Loc.Tr("Zurücksetzen (Alt+R)");
+            reset.ToolTip = "Reset (Alt+R)";
             reset.Click += () => { App.Timer.Reset(); Tick(); };
             U.Put(btns, startBtn, 0, 0); U.Put(btns, reset, 0, 2);
             U.Put(tg, btns, 4, 0);
@@ -7626,9 +7647,9 @@ namespace WinDock
 
         void RenderWeather()
         {
-            if (double.IsNaN(Weather.Temp)) { wIcon.Text = "☁"; wTemp.Text = "–"; wDesc.Text = Loc.Tr("Lädt …"); return; }
+            if (double.IsNaN(Weather.Temp)) { wIcon.Text = "–"; wTemp.Text = "-"; wDesc.Text = "Loading…"; return; }
             wIcon.Text = Weather.Symbol(Weather.Code);
-            wTemp.Text = Math.Round(Weather.Temp) + (App.Cfg.S("today.weatherUnit", "C") == "F" ? "°F" : "°C");
+            wTemp.Text = Math.Round(Weather.Temp) + (App.Cfg.S("today.weatherUnit", "F") == "F" ? "°F" : "°C");
             wDesc.Text = Weather.Text(Weather.Code);
         }
 
@@ -8929,12 +8950,12 @@ namespace WinDock
             U.Put(topBar, countTb, 0, 0);
 
             var refreshBtn = U.IconBtn("\uE72C", 30, 12, Th.Surface2, Th.Hover, Th.Muted);
-            refreshBtn.ToolTip = Loc.Tr("Aktualisieren");
+            refreshBtn.ToolTip = "Refresh";
             refreshBtn.Click += () => LoadNotifications();
             U.Put(topBar, refreshBtn, 0, 1);
 
             var clearBtn = U.IconBtn("\uE711", 30, 11, Th.Surface2, Th.Hover, Th.Muted);
-            clearBtn.ToolTip = Loc.Tr("Alle Benachrichtigungen löschen");
+            clearBtn.ToolTip = "Clear all notifications";
             clearBtn.Click += () =>
             {
                 foreach (var item in currentList) dismissed.Add(item.App + "|" + item.Title + "|" + item.Time.Ticks);
@@ -9024,7 +9045,7 @@ namespace WinDock
                 U.Put(header, timeTb, 0, 3);
 
                 var closeBtn = U.IconBtn("\uE711", 20, 10, Brushes.Transparent, Th.Hover, Th.Muted);
-                closeBtn.ToolTip = Loc.Tr("Schließen");
+                closeBtn.ToolTip = "Dismiss notification";
                 closeBtn.Click += () =>
                 {
                     dismissed.Add(it.App + "|" + it.Title + "|" + it.Time.Ticks);
@@ -9546,15 +9567,15 @@ namespace WinDock
             string exe = TargetOf(a);
             var items = new List<MI>();
             if (exe != null) AddJump(items, exe);
-            items.Add(MI.Item(Loc.Tr("Öffnen"), "", "Enter", launch));
+            items.Add(MI.Item("Open", "\uE768", "Enter", launch));
             if (exe != null)
             {
-                items.Add(MI.Item(Loc.Tr("Als Administrator ausführen"), "", Loc.Tr("Umschalt+Enter"), () => { app.ClosePanel(); RunAsAdmin(exe); }));
-                items.Add(MI.Item(Loc.Tr("Dateispeicherort öffnen"), "", Loc.Tr("Strg+O"), () => { app.ClosePanel(); ShowInFolder(exe); }));
+                items.Add(MI.Item("Run as administrator", "\uE7EF", "Shift+Enter", () => { app.ClosePanel(); RunAsAdmin(exe); }));
+                items.Add(MI.Item("Open file location", "\uE838", "Ctrl+O", () => { app.ClosePanel(); ShowInFolder(exe); }));
             }
-            items.Add(MI.Item(starred ? Loc.Tr("Von Favoriten lösen") : Loc.Tr("Zu Favoriten"), starred ? "" : "", Loc.Tr("Strg+S"), toggleStar));
+            items.Add(MI.Item(starred ? "Remove from favorites" : "Add to favorites", starred ? "\uE735" : "\uE734", "Ctrl+S", toggleStar));
             bool isPillPinned = (app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred")).Contains(a.Parse);
-            items.Add(MI.Item(isPillPinned ? Loc.Tr("Von Pille l\u00f6sen") : Loc.Tr("An Pille anheften"), isPillPinned ? "\uE77A" : "\uE718", () =>
+            items.Add(MI.Item(isPillPinned ? "Unpin from pill" : "Pin to pill", isPillPinned ? "\uE77A" : "\uE718", () =>
             {
                 var p = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
                 if (p.Contains(a.Parse)) p.Remove(a.Parse);
@@ -9563,7 +9584,7 @@ namespace WinDock
                 if (app.Pill != null) app.Pill.RefreshWindowsSoon();
             }));
             items.Add(MI.Sep());
-            items.Add(MI.Item(Loc.Tr("Deinstallieren"), "", () => { app.ClosePanel(); Uninstall(); }));
+            items.Add(MI.Item("Uninstall", "\uE74D", () => { app.ClosePanel(); Uninstall(); }));
             return items;
         }
 
@@ -9577,7 +9598,7 @@ namespace WinDock
             {
                 AddJump(items, first.Path);
                 string p = first.Path;
-                items.Add(MI.Item(first.Name + Loc.Tr(" starten"), "\uE768", () =>
+                items.Add(MI.Item("Start " + first.Name, "\uE768", () =>
                 {
                     app.ClosePanel();
                     if (!string.IsNullOrEmpty(first.AppId) && AppIndex.TryLaunchChromeApp(first.AppId, first.Name)) return;
@@ -9590,7 +9611,7 @@ namespace WinDock
                 string pinKey = !string.IsNullOrEmpty(first.AppId) ? first.AppId : (ae != null ? ae.Parse : first.Path);
                 var pinnedList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
                 bool isPinned = pinnedList.Contains(pinKey) || pinnedList.Contains(first.Path) || (ae != null && pinnedList.Contains(ae.Parse)) || (!string.IsNullOrEmpty(first.AppId) && pinnedList.Contains(first.AppId));
-                items.Add(MI.Item(isPinned ? Loc.Tr("Von Pille lösen") : Loc.Tr("An Pille anheften"), isPinned ? "\uE77A" : "\uE718", () =>
+                items.Add(MI.Item(isPinned ? "Unpin from pill" : "Pin to pill", isPinned ? "\uE77A" : "\uE718", () =>
                 {
                     var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
                     if (isPinned)
@@ -9611,37 +9632,37 @@ namespace WinDock
             }
             if (ws.Count > 1)
             {
-                items.Add(MI.Head(Loc.Tr("Fenster")));
+                items.Add(MI.Head("Windows"));
                 foreach (var w in ws.Take(12))
                 {
                     var h = w.H;
-                    items.Add(MI.Item(w.Title, "", () => { WinList.Activate(h); app.ClosePanel(); if (after != null) after(); }));
+                    items.Add(MI.Item(w.Title, "\uE7C4", () => { WinList.Activate(h); app.ClosePanel(); if (after != null) after(); }));
                 }
                 items.Add(MI.Sep());
             }
             else
             {
                 var h = first.H;
-                items.Add(MI.Item(Loc.Tr("Minimieren"), "", () => { WinList.Minimize(h); if (after != null) after(); }));
+                items.Add(MI.Item("Minimize", "\uE921", () => { WinList.Minimize(h); if (after != null) after(); }));
             }
             if (!string.IsNullOrEmpty(first.Path))
             {
                 string p = first.Path;
-                items.Add(MI.Item(Loc.Tr("Dateispeicherort öffnen"), "", () => { app.ClosePanel(); ShowInFolder(p); }));
+                items.Add(MI.Item("Open file location", "\uE838", () => { app.ClosePanel(); ShowInFolder(p); }));
             }
             items.Add(MI.Sep());
             if (ws.Count > 1)
-                items.Add(MI.Item(Loc.Tr("Alle Fenster schließen"), "", () => { foreach (var w in ws) WinList.Close(w.H); if (after != null) after(); }));
+                items.Add(MI.Item("Close all windows", "\uE8BB", () => { foreach (var w in ws) WinList.Close(w.H); if (after != null) after(); }));
             else
             {
                 var h = first.H;
-                items.Add(MI.Item(Loc.Tr("Fenster schließen"), "", Loc.Tr("Entf"), () => { WinList.Close(h); if (after != null) after(); }));
+                items.Add(MI.Item("Close window", "\uE8BB", "Del", () => { WinList.Close(h); if (after != null) after(); }));
             }
             bool isExplorer = !string.IsNullOrEmpty(first.Path) && System.IO.Path.GetFileName(first.Path).Equals("explorer.exe", StringComparison.OrdinalIgnoreCase);
             if (EndTaskEnabled() && !isExplorer)
             {
                 var pids = ws.Select(w => w.Pid).Distinct().ToList();
-                var end = MI.Item(Loc.Tr("Task beenden"), "", () =>
+                var end = MI.Item("End task", "\uE711", () =>
                 {
                     foreach (var pid in pids)
                     {
@@ -9649,7 +9670,6 @@ namespace WinDock
                     }
                     if (after != null) after();
                 });
-                end.Danger = true;
                 items.Add(end);
             }
             return items;
