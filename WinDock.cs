@@ -32,6 +32,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using System.Windows.Automation;
 using Microsoft.Win32;
 
 // Datei-Infos (Explorer → Eigenschaften → Details); die Version setzt der GitHub-Build
@@ -1356,6 +1357,10 @@ namespace WinDock
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string cls, string title);
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
         [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+        [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+        [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+        [DllImport("user32.dll")] public static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+        [DllImport("user32.dll")] public static extern bool SetThreadDesktop(IntPtr hDesktop);
         public delegate IntPtr HookProc(int code, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] public static extern IntPtr SetWindowsHookEx(int id, HookProc proc, IntPtr mod, uint thread);
         [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr h);
@@ -2145,7 +2150,7 @@ namespace WinDock
                     if (pid == me) continue;
                     bool sys = ctl.IsSystemSoundsSession() == 0;
                     string path = null, name = null;
-                    if (sys) name = Loc.Tr("Systemsounds");
+                    if (sys) name = "System Sounds";
                     else
                     {
                         try { path = N.ProcessPath(pid); } catch { }
@@ -7107,7 +7112,7 @@ namespace WinDock
         public override string Title { get { return Loc.Tr("Steuerung"); } }
 
         readonly Tile wifi, bt, night, dark, mic, awake, cast, batterySaver, dnd;
-        readonly SliderTile audio, volume, brightness;
+        readonly SliderTile volume, brightness;
         static bool isAwake;
         static string lastWifi;
         static bool wifiKnown;
@@ -7134,42 +7139,20 @@ namespace WinDock
             CoverDefault = MakeCoverBrush();
             wifi = new Tile("\uE701", "Wi-Fi", true);
             bt = new Tile("\uE702", "Bluetooth", true);
-            audio = new SliderTile("\uE767", "Speakers", true);
             volume = new SliderTile("\uE767", "Volume", true);
             brightness = new SliderTile("\uE706", "Brightness", false);
-
-            audio.ValueChanged += v =>
-            {
-                Audio.Set(v);
-                int pct = (int)Math.Round(v * 100);
-                bool m = Audio.Muted();
-                audio.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
-                audio.SetIcon(Audio.Glyph(v, m));
-                if (volume != null && !volume.Dragging)
-                {
-                    volume.Value = v;
-                    volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
-                    volume.SetIcon(Audio.Glyph(v, m));
-                }
-                if (vol != null && !vol.Dragging) { vol.Value = v; vol.SetIcon(Audio.Glyph(v, m)); }
-            };
-            audio.IconClick += ToggleVolumeMute;
-            audio.ChevronClick += () => OpenAudio(audio);
-            audio.MouseRightButtonUp += (s, e) => { OpenAudio(audio); e.Handled = true; };
 
             volume.ValueChanged += v =>
             {
                 Audio.Set(v);
                 int pct = (int)Math.Round(v * 100);
                 bool m = Audio.Muted();
-                volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
+                string dev = Audio.DeviceName();
+                string devShort = (dev != null && dev.IndexOf("Headphone", StringComparison.OrdinalIgnoreCase) >= 0) ? "Headphones" : (!string.IsNullOrEmpty(dev) ? dev : "Speakers");
+                if (devShort.Length > 20) devShort = devShort.Substring(0, 18) + "...";
+                volume.Set(!m && pct > 0, m ? "Muted" : (pct + "% · " + devShort));
                 volume.SetIcon(Audio.Glyph(v, m));
-                if (audio != null && !audio.Dragging)
-                {
-                    audio.Value = v;
-                    audio.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
-                    audio.SetIcon(Audio.Glyph(v, m));
-                }
+                volume.ToolTip = dev;
                 if (vol != null && !vol.Dragging) { vol.Value = v; vol.SetIcon(Audio.Glyph(v, m)); }
             };
             volume.IconClick += ToggleVolumeMute;
@@ -7207,8 +7190,7 @@ namespace WinDock
             {
                 { "wifi", new KeyValuePair<Tile, Action>(wifi, OpenWifi) },
                 { "bluetooth", new KeyValuePair<Tile, Action>(bt, OpenBluetooth) },
-                { "audio", new KeyValuePair<Tile, Action>(audio, () => OpenAudio(audio)) },
-                { "volume", new KeyValuePair<Tile, Action>(volume, ToggleVolumeMute) },
+                { "volume", new KeyValuePair<Tile, Action>(volume, () => OpenAudio(volume)) },
                 { "brightness", new KeyValuePair<Tile, Action>(brightness, CycleBrightness) },
                 { "night", new KeyValuePair<Tile, Action>(night, ToggleNight) },
                 { "dark", new KeyValuePair<Tile, Action>(dark, ToggleDark) },
@@ -7219,7 +7201,7 @@ namespace WinDock
                 { "dnd", new KeyValuePair<Tile, Action>(dnd, ToggleDnd) }
             };
             // Kacheln in der eingestellten Reihenfolge, je 3 pro Reihe
-            var ids = app.Cfg.L("controls.tiles").Select(x => Convert.ToString(x)).Where(all.ContainsKey).Distinct().ToList();
+            var ids = app.Cfg.L("controls.tiles").Select(x => Convert.ToString(x)).Select(x => x == "audio" ? "volume" : x).Where(all.ContainsKey).Distinct().ToList();
             var acts = new List<Action>();
             var rowsDef = new List<GridLength>();
             bool showSearch = app.Cfg.B("controls.showSearch", true);
@@ -7400,7 +7382,7 @@ namespace WinDock
             try
             {
                 Rect r;
-                var target = anchor ?? (audio != null && audio.IsVisible ? (UIElement)audio : (volume != null && volume.IsVisible ? (UIElement)volume : null));
+                var target = anchor ?? (volume != null && volume.IsVisible ? (UIElement)volume : null);
                 if (target != null)
                 {
                     var p = target.PointToScreen(new Point(0, 0));
@@ -7565,7 +7547,6 @@ namespace WinDock
         {
             if (vol != null && vol.Dragging) return;
             if (volume != null && volume.Dragging) return;
-            if (audio != null && audio.Dragging) return;
             RefreshVolume();
         }
 
@@ -7613,19 +7594,12 @@ namespace WinDock
             if (volume != null && !volume.Dragging)
             {
                 if (v >= 0) volume.Value = v;
-                volume.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
-                volume.SetIcon(Audio.Glyph(v, m));
-                volume.ToolTip = Audio.DeviceName();
-            }
-            if (audio != null && !audio.Dragging)
-            {
-                if (v >= 0) audio.Value = v;
                 string dev = Audio.DeviceName();
-                string shortTitle = (dev != null && dev.IndexOf("Headphone", StringComparison.OrdinalIgnoreCase) >= 0) ? "Headphones" : "Speakers";
-                audio.SetTitle(shortTitle);
-                audio.Set(!m && pct > 0, m ? "Muted" : (pct + "%"));
-                audio.SetIcon(Audio.Glyph(v, m));
-                audio.ToolTip = dev;
+                string devShort = (dev != null && dev.IndexOf("Headphone", StringComparison.OrdinalIgnoreCase) >= 0) ? "Headphones" : (!string.IsNullOrEmpty(dev) ? dev : "Speakers");
+                if (devShort.Length > 20) devShort = devShort.Substring(0, 18) + "...";
+                volume.Set(!m && pct > 0, m ? "Muted" : (pct + "% · " + devShort));
+                volume.SetIcon(Audio.Glyph(v, m));
+                volume.ToolTip = dev;
             }
         }
 
@@ -11373,7 +11347,7 @@ namespace WinDock
         {
             return new[]
             {
-                new[] { "wifi", "Wi-Fi", "\uE701" }, new[] { "bluetooth", "Bluetooth", "\uE702" }, new[] { "audio", "Speakers", "\uE767" },
+                new[] { "wifi", "Wi-Fi", "\uE701" }, new[] { "bluetooth", "Bluetooth", "\uE702" },
                 new[] { "volume", "Volume", "\uE767" }, new[] { "brightness", "Brightness", "\uE706" },
                 new[] { "night", "Night Light", "\uE708" }, new[] { "dark", "Dark Mode", "\uE793" }, new[] { "mic", "Microphone", "\uE720" },
                 new[] { "awake", "Keep Awake", "\uE7B3" }, new[] { "cast", "Cast & Mirror", "\uEC15" }, new[] { "batterysaver", "Battery Saver", "\uEBAA" }, new[] { "dnd", "Do Not Disturb", "\uE708" }
@@ -11988,7 +11962,7 @@ namespace WinDock
                 var ids = c.L("controls.tiles").Select(x => Convert.ToString(x)).Where(x => all.Any(a => a[0] == x)).Distinct().ToList();
                 var subs = new Dictionary<string, string[]>
                 {
-                    { "wifi", new[] { "1", "Home 5G" } }, { "bluetooth", new[] { "0", "Settings" } }, { "audio", new[] { "1", "Speakers" } },
+                    { "wifi", new[] { "1", "Home 5G" } }, { "bluetooth", new[] { "0", "Settings" } },
                     { "volume", new[] { "1", "65%" } }, { "brightness", new[] { "1", "80%" } },
                     { "night", new[] { "0", "Settings" } }, { "dark", new[] { "1", "On" } }, { "mic", new[] { "0", "On" } }, { "awake", new[] { "0", "Off" } }, { "cast", new[] { "0", "Connect" } }, { "batterysaver", new[] { "0", "Off" } }, { "dnd", new[] { "0", "Off" } }
                 };
@@ -12016,10 +11990,10 @@ namespace WinDock
                         if (i >= ids.Count) break;
                         var def = all.First(a => a[0] == ids[i]);
                         Tile tile;
-                        if (ids[i] == "volume" || ids[i] == "audio" || ids[i] == "brightness")
+                        if (ids[i] == "volume" || ids[i] == "brightness")
                         {
                             var st = new SliderTile(def[2], def[1], ids[i] != "brightness");
-                            st.Value = ids[i] == "volume" || ids[i] == "audio" ? 0.65 : 0.8;
+                            st.Value = ids[i] == "volume" ? 0.65 : 0.8;
                             st.Set(true, subs[ids[i]][1]);
                             tile = st;
                         }
@@ -12236,54 +12210,86 @@ namespace WinDock
             sp.Children.Clear(); rows.Clear(); rowKeys.Clear(); rowRefresh.Clear();
             int keep = sel; sel = -1;
 
-            sp.Children.Add(Head("Ausgabe"));
+            sp.Children.Add(Head("Master Volume"));
+            {
+                var g = U.G(null, new[] { U.Px(30), U.Px(140), U.Star(1), U.Px(44), U.Px(32) });
+                U.Put(g, U.I("\uE767", 14, Th.Accent), 0, 0);
+                var name = U.T("Master", 13, Th.Text, FontWeights.SemiBold);
+                U.Put(g, name, 0, 1);
+                var bar = new SeekBar { Margin = new Thickness(8, 0, 8, 0) };
+                var pct = U.T("", 12, Th.Muted, FontWeights.SemiBold); pct.HorizontalAlignment = HorizontalAlignment.Right;
+                var mute = U.IconBtn("\uE767", 28, 11, Brushes.Transparent, Th.Hover, Th.Muted);
+                Action refresh = () =>
+                {
+                    double v = Audio.Get(); bool m = Audio.Muted();
+                    bar.Value = v;
+                    pct.Text = Math.Round(v * 100) + "%";
+                    ((TextBlock)mute.Child).Text = Audio.Glyph(v, m);
+                    ((TextBlock)mute.Child).Foreground = m ? Th.Accent : Th.Muted;
+                    name.Foreground = m ? Th.Muted : Th.Text;
+                };
+                bar.Dragged += v => { Audio.Set(v); pct.Text = Math.Round(v * 100) + "%"; };
+                bar.Seeked += v => { Audio.Set(v); refresh(); };
+                mute.Click += () => { Audio.ToggleMute(); refresh(); };
+                U.Put(g, bar, 0, 2); U.Put(g, pct, 0, 3); U.Put(g, mute, 0, 4);
+                refresh();
+                Action<int> key = k =>
+                {
+                    if (k == 0 || k == 2) Audio.ToggleMute();
+                    else Audio.Set(Math.Max(0, Math.Min(1, Audio.Get() + k * 0.05)));
+                    refresh();
+                };
+                AddRow(g, null, key, refresh);
+            }
+
+            sp.Children.Add(Head("Output Device"));
             var outs = Audio.Outputs();
-            if (outs.Count == 0) sp.Children.Add(Note("Kein Gerät"));
+            if (outs.Count == 0) sp.Children.Add(Note("No output devices found"));
             foreach (var d0 in outs)
             {
                 var d = d0;
                 var g = U.G(null, new[] { U.Px(28), U.Star(1), U.Px(24) });
-                U.Put(g, U.I("", 14, d.IsDefault ? Th.Accent : Th.Muted), 0, 0);
+                U.Put(g, U.I("\uE767", 14, d.IsDefault ? Th.Accent : Th.Muted), 0, 0);
                 var t = U.T(d.Name, 13.5, d.IsDefault ? Th.Text : Th.Muted, d.IsDefault ? FontWeights.SemiBold : FontWeights.Normal);
                 t.MaxWidth = 300;
                 U.Put(g, t, 0, 1);
-                if (d.IsDefault) U.Put(g, U.I("", 12, Th.Accent), 0, 2);
+                if (d.IsDefault) U.Put(g, U.I("\uE73E", 12, Th.Accent), 0, 2);
                 Action pick = () =>
                 {
                     if (d.IsDefault) return;
-                    if (Audio.SetDefaultOutput(d.Id)) app.Pill.Flash(Loc.Tr("Ausgabe: ") + d.Name, 2, false);
-                    else app.Pill.Flash(Loc.Tr("Gerät konnte nicht gewechselt werden"), 3, false);
+                    if (Audio.SetDefaultOutput(d.Id)) app.Pill.Flash("Output: " + d.Name, 2, false);
+                    else app.Pill.Flash("Could not switch audio device", 3, false);
                     Build();
                 };
                 AddRow(g, pick, k => { if (k == 0) pick(); }, null);
             }
 
-            sp.Children.Add(Head("Apps"));
+            sp.Children.Add(Head("App Volume"));
             var apps = Audio.Apps();
-            if (apps.Count == 0) sp.Children.Add(Note("Gerade spielt keine App Ton ab."));
+            if (apps.Count == 0) sp.Children.Add(Note("No apps currently playing audio."));
             foreach (var a0 in apps)
             {
                 var a = a0;
                 var g = U.G(null, new[] { U.Px(30), U.Px(140), U.Star(1), U.Px(44), U.Px(32) });
                 UIElement icon = null;
                 if (!string.IsNullOrEmpty(a.Path)) { var ic = N.ShellIcon(a.Path, 32); if (ic != null) icon = new Image { Source = ic, Width = 20, Height = 20 }; }
-                if (icon == null) icon = a.System ? (UIElement)U.I("", 14, Th.Muted) : U.Letter(a.Name, 22);
+                if (icon == null) icon = a.System ? (UIElement)U.I("\uE767", 14, Th.Muted) : U.Letter(a.Name, 22);
                 U.Put(g, icon, 0, 0);
                 var name = U.T(a.Name, 13, Th.Text, FontWeights.SemiBold);
                 U.Put(g, name, 0, 1);
                 var bar = new SeekBar { Margin = new Thickness(8, 0, 8, 0) };
                 var pct = U.T("", 12, Th.Muted, FontWeights.SemiBold); pct.HorizontalAlignment = HorizontalAlignment.Right;
-                var mute = U.IconBtn("", 28, 11, Brushes.Transparent, Th.Hover, Th.Muted);
+                var mute = U.IconBtn("\uE767", 28, 11, Brushes.Transparent, Th.Hover, Th.Muted);
                 Action refresh = () =>
                 {
                     double v = a.Volume; bool m = a.Muted;
                     bar.Value = v;
-                    pct.Text = Math.Round(v * 100) + " %";
+                    pct.Text = Math.Round(v * 100) + "%";
                     ((TextBlock)mute.Child).Text = Audio.Glyph(v, m);
                     ((TextBlock)mute.Child).Foreground = m ? Th.Accent : Th.Muted;
                     name.Foreground = m ? Th.Muted : Th.Text;
                 };
-                bar.Dragged += v => { a.Volume = v; if (a.Muted && v > 0) a.Muted = false; pct.Text = Math.Round(v * 100) + " %"; };
+                bar.Dragged += v => { a.Volume = v; if (a.Muted && v > 0) a.Muted = false; pct.Text = Math.Round(v * 100) + "%"; };
                 bar.Seeked += v => { a.Volume = v; refresh(); };
                 mute.Click += () => { a.Muted = !a.Muted; refresh(); };
                 U.Put(g, bar, 0, 2); U.Put(g, pct, 0, 3); U.Put(g, mute, 0, 4);
@@ -12299,8 +12305,8 @@ namespace WinDock
 
             sp.Children.Add(new Border { Height = 1, Background = Th.Faint, Margin = new Thickness(8, 8, 8, 6) });
             var links = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 4, 2) };
-            links.Children.Add(Link("Sound-Einstellungen", "ms-settings:sound"));
-            links.Children.Add(Link("Lautstärkemixer", "ms-settings:apps-volume"));
+            links.Children.Add(Link("Sound Settings", "ms-settings:sound"));
+            links.Children.Add(Link("Volume Mixer", "ms-settings:apps-volume"));
             sp.Children.Add(links);
 
             if (keep >= 0 && rows.Count > 0) SetSel(Math.Min(keep, rows.Count - 1));
@@ -12308,7 +12314,7 @@ namespace WinDock
 
         TextBlock Head(string t)
         {
-            var h = U.T(Loc.Tr(t).ToUpper(Th.Cul), 10.5, Th.Muted, FontWeights.Bold);
+            var h = U.T(t.ToUpperInvariant(), 10.5, Th.Muted, FontWeights.Bold);
             h.Margin = new Thickness(10, sp.Children.Count == 0 ? 4 : 12, 10, 6);
             return h;
         }
@@ -12893,6 +12899,118 @@ namespace WinDock
             }
             catch { }
         }
+
+        public static bool TriggerNativeClick(SystrayItem item, bool isRightClick, int clickX, int clickY)
+        {
+            if (item == null) return false;
+            try
+            {
+                IntPtr hDesk = N.OpenDesktop("Default", 0, false, 0x01FF);
+                if (hDesk != IntPtr.Zero) N.SetThreadDesktop(hDesk);
+
+                // 1. Try Shell_TrayWnd
+                IntPtr hTray = N.FindWindow("Shell_TrayWnd", null);
+                if (hTray != IntPtr.Zero)
+                {
+                    bool wasVis = N.IsWindowVisible(hTray);
+                    if (!wasVis) N.ShowWindow(hTray, 5); // SW_SHOW
+                    Thread.Sleep(30);
+
+                    IntPtr hBridge = N.FindWindowEx(hTray, IntPtr.Zero, "Windows.UI.Composition.DesktopWindowContentBridge", null);
+                    IntPtr target = hBridge != IntPtr.Zero ? hBridge : hTray;
+                    var el = AutomationElement.FromHandle(target);
+                    if (el != null)
+                    {
+                        var cond = new PropertyCondition(AutomationElement.AutomationIdProperty, "NotifyItemIcon");
+                        var icons = el.FindAll(TreeScope.Descendants, cond);
+                        foreach (AutomationElement icon in icons)
+                        {
+                            string n = icon.Current.Name;
+                            if (Matches(n, item.Title, item.ProcessName))
+                            {
+                                var r = icon.Current.BoundingRectangle;
+                                if (r.Width > 0 && r.Height > 0)
+                                {
+                                    int cx = (int)(r.X + r.Width / 2);
+                                    int cy = (int)(r.Y + r.Height / 2);
+                                    ClickAt(cx, cy, isRightClick);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Try Overflow (TopLevelWindowForOverflowXamlIsland)
+                IntPtr hOverflow = N.FindWindow("TopLevelWindowForOverflowXamlIsland", null);
+                if (hOverflow != IntPtr.Zero)
+                {
+                    int ox = Math.Max(10, clickX - 100);
+                    int oy = Math.Max(10, clickY - 100);
+                    N.SetWindowPos(hOverflow, IntPtr.Zero, ox, oy, 320, 320, 0x0040); // SWP_SHOWWINDOW
+                    Thread.Sleep(80);
+
+                    IntPtr hBridge = N.FindWindowEx(hOverflow, IntPtr.Zero, "Windows.UI.Composition.DesktopWindowContentBridge", null);
+                    IntPtr target = hBridge != IntPtr.Zero ? hBridge : hOverflow;
+                    var el = AutomationElement.FromHandle(target);
+                    if (el != null)
+                    {
+                        var cond = new PropertyCondition(AutomationElement.AutomationIdProperty, "NotifyItemIcon");
+                        var icons = el.FindAll(TreeScope.Descendants, cond);
+                        foreach (AutomationElement icon in icons)
+                        {
+                            string n = icon.Current.Name;
+                            if (Matches(n, item.Title, item.ProcessName))
+                            {
+                                var r = icon.Current.BoundingRectangle;
+                                if (r.Width > 0 && r.Height > 0)
+                                {
+                                    int cx = (int)(r.X + r.Width / 2);
+                                    int cy = (int)(r.Y + r.Height / 2);
+                                    ClickAt(cx, cy, isRightClick);
+                                    Thread.Sleep(60);
+                                    N.ShowWindow(hOverflow, 0);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { WinDockApp.Log(ex); }
+            return false;
+        }
+
+        static void ClickAt(int cx, int cy, bool isRightClick)
+        {
+            N.SetCursorPos(cx, cy);
+            if (isRightClick)
+            {
+                N.mouse_event(0x0008, 0, 0, 0, UIntPtr.Zero);
+                N.mouse_event(0x0010, 0, 0, 0, UIntPtr.Zero);
+            }
+            else
+            {
+                N.mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero);
+                N.mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+            }
+        }
+
+        static bool Matches(string name, string title, string procName)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            if (!string.IsNullOrEmpty(title))
+            {
+                if (name.IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (title.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            if (!string.IsNullOrEmpty(procName))
+            {
+                if (name.IndexOf(procName, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (procName.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
+        }
     }
 
     // -----------------------------------------------------------------
@@ -13154,77 +13272,90 @@ namespace WinDock
                     b.ToolTip = it.Title;
                     b.Click += () =>
                     {
+                        var pt = b.PointToScreen(new Point(b.ActualWidth / 2, b.ActualHeight / 2));
                         CloseFlyout();
-                        SystrayReader.Activate(it);
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            bool ok = SystrayReader.TriggerNativeClick(it, false, (int)pt.X, (int)pt.Y);
+                            if (!ok)
+                            {
+                                Dispatcher.BeginInvoke(new Action(() => SystrayReader.Activate(it)));
+                            }
+                        });
                     };
                     b.MouseRightButtonUp += (s, e) =>
                     {
-                        var mis = new List<MI>();
-                        mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () =>
-                        {
-                            CloseFlyout();
-                            SystrayReader.Activate(it);
-                        }));
+                        var pt = e.GetPosition(this);
+                        var screenPt = PointToScreen(pt);
+                        CloseFlyout();
 
-                        var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
-                        bool isPinned = !string.IsNullOrEmpty(it.ExePath) && pl.Contains(it.ExePath);
-                        if (!string.IsNullOrEmpty(it.ExePath) && File.Exists(it.ExePath))
+                        ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            mis.Add(MI.Item(isPinned ? "Unpin from pill" : "Pin to pill", isPinned ? "\uE77A" : "\uE718", () =>
+                            bool triggered = SystrayReader.TriggerNativeClick(it, true, (int)screenPt.X, (int)screenPt.Y);
+                            if (!triggered)
                             {
-                                var curList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
-                                if (isPinned) curList.Remove(it.ExePath);
-                                else if (!curList.Contains(it.ExePath)) curList.Add(it.ExePath);
-                                app.Store.Set("pill.pinned", curList);
-                                if (app.Pill != null) app.Pill.RefreshWindowsSoon();
-                            }));
-                            mis.Add(MI.Item("Run as administrator", "\uE7EF", () =>
-                            {
-                                CloseFlyout();
-                                try { Process.Start(new ProcessStartInfo(it.ExePath) { Verb = "runas", UseShellExecute = true }); } catch { }
-                            }));
-                            mis.Add(MI.Item("Open file location", "\uE838", () =>
-                            {
-                                CloseFlyout();
-                                try { Process.Start("explorer.exe", "/select,\"" + it.ExePath + "\""); } catch { }
-                            }));
-                        }
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    var mis = new List<MI>();
+                                    mis.Add(MI.Item("Open " + it.Title, "\uE8A7", () => SystrayReader.Activate(it)));
 
-                        mis.Add(MI.Sep());
-                        mis.Add(MI.Item("Close / End Process", "\uE711", () =>
-                        {
-                            CloseFlyout();
-                            try
-                            {
-                                if (it.MainWindowHandle != IntPtr.Zero)
-                                {
-                                    N.PostMessage(it.MainWindowHandle, 0x0010, IntPtr.Zero, IntPtr.Zero);
-                                }
-                                if (it.Pid > 0)
-                                {
-                                    ThreadPool.QueueUserWorkItem(_ =>
+                                    var pl = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                                    bool isPinned = !string.IsNullOrEmpty(it.ExePath) && pl.Contains(it.ExePath);
+                                    if (!string.IsNullOrEmpty(it.ExePath) && File.Exists(it.ExePath))
+                                    {
+                                        mis.Add(MI.Item(isPinned ? "Unpin from pill" : "Pin to pill", isPinned ? "\uE77A" : "\uE718", () =>
+                                        {
+                                            var curList = app.Store.Has("pill.pinned") ? app.Store.Strs("pill.pinned") : app.Store.Strs("starred");
+                                            if (isPinned) curList.Remove(it.ExePath);
+                                            else if (!curList.Contains(it.ExePath)) curList.Add(it.ExePath);
+                                            app.Store.Set("pill.pinned", curList);
+                                            if (app.Pill != null) app.Pill.RefreshWindowsSoon();
+                                        }));
+                                        mis.Add(MI.Item("Run as administrator", "\uE7EF", () =>
+                                        {
+                                            try { Process.Start(new ProcessStartInfo(it.ExePath) { Verb = "runas", UseShellExecute = true }); } catch { }
+                                        }));
+                                        mis.Add(MI.Item("Open file location", "\uE838", () =>
+                                        {
+                                            try { Process.Start("explorer.exe", "/select,\"" + it.ExePath + "\""); } catch { }
+                                        }));
+                                    }
+
+                                    mis.Add(MI.Sep());
+                                    mis.Add(MI.Item("Close / End Process", "\uE711", () =>
                                     {
                                         try
                                         {
-                                            var proc = Process.GetProcessById((int)it.Pid);
-                                            if (!proc.HasExited)
+                                            if (it.MainWindowHandle != IntPtr.Zero)
                                             {
-                                                proc.CloseMainWindow();
-                                                if (!proc.WaitForExit(600)) proc.Kill();
+                                                N.PostMessage(it.MainWindowHandle, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                                            }
+                                            if (it.Pid > 0)
+                                            {
+                                                ThreadPool.QueueUserWorkItem(_2 =>
+                                                {
+                                                    try
+                                                    {
+                                                        var proc = Process.GetProcessById((int)it.Pid);
+                                                        if (!proc.HasExited)
+                                                        {
+                                                            proc.CloseMainWindow();
+                                                            if (!proc.WaitForExit(600)) proc.Kill();
+                                                        }
+                                                    }
+                                                    catch { }
+                                                });
                                             }
                                         }
                                         catch { }
-                                    });
-                                }
-                            }
-                            catch { }
-                        }));
+                                    }));
 
-                        var pt = e.GetPosition(this);
-                        var screenPt = PointToScreen(pt);
-                        double sc = WinDockApp.Scale();
-                        var at = new Point(screenPt.X / sc, screenPt.Y / sc);
-                        new MenuWindow(app, mis, app.Pill.MenuAnchor(at)).Open();
+                                    double sc = WinDockApp.Scale();
+                                    var at = new Point(screenPt.X / sc, screenPt.Y / sc);
+                                    new MenuWindow(app, mis, app.Pill.MenuAnchor(at)).Open();
+                                }));
+                            }
+                        });
                         e.Handled = true;
                     };
                     trayWrap.Children.Add(b);
